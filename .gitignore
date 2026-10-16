@@ -1,0 +1,15 @@
+.venv/
+dist/
+build/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# secrets / local state (never commit)
+state.db
+state.db-wal
+state.db-shm
+gotohp.config
+*.token
