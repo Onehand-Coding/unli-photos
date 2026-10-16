@@ -375,6 +375,32 @@ def test_download_button_disabled_when_binary_ok(env_paths, monkeypatch):
     run_async(go())
 
 
+def test_service_buttons_follow_status(env_paths, monkeypatch):
+    paths, _ = env_paths
+    engine = FakeEngine()
+    import unli_photos.tui.app as app_mod
+
+    async def check(status, enable_disabled, disable_disabled):
+        monkeypatch.setattr(app_mod.service_mod, "status", lambda: status)
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import Button
+
+            assert (
+                app.query_one("#btn-enable", Button).disabled is enable_disabled
+            )
+            assert (
+                app.query_one("#btn-disable", Button).disabled
+                is disable_disabled
+            )
+
+    run_async(check("active (enabled)", True, False))
+    run_async(check("not installed", False, True))
+    run_async(check("systemd unavailable", True, True))
+    run_async(check("inactive (enabled)", False, False))
+
+
 def test_setup_download_button(env_paths, monkeypatch):
     paths, _ = env_paths
     engine = FakeEngine()

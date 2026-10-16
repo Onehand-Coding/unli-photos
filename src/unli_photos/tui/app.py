@@ -427,12 +427,25 @@ class UnliApp(App[None]):
         self.query_one("#binary-status", Static).update(
             f"binary: gotohp-cli {binary_mod.GOTOHP_VERSION}: {state}"
         )
+        service_status = service_mod.status()
         self.query_one("#service-status", Static).update(
-            f"service: {service_mod.status()}"
+            f"service: {service_status}"
         )
         missing = state == "BIN_MISSING"
         self.query_one("#dl-progress", ProgressBar).display = missing
         self.query_one("#btn-download", Button).disabled = not missing
+        self._set_service_buttons(service_status)
+
+    def _set_service_buttons(self, service_status: str) -> None:
+        if service_status == "systemd unavailable":
+            enable_disabled = disable_disabled = True
+        elif service_status == "not installed":
+            enable_disabled, disable_disabled = False, True
+        else:
+            enable_disabled = service_status.startswith("active")
+            disable_disabled = False
+        self.query_one("#btn-enable", Button).disabled = enable_disabled
+        self.query_one("#btn-disable", Button).disabled = disable_disabled
 
     def on_download_binary(self) -> None:
         bar = self.query_one("#dl-progress", ProgressBar)
