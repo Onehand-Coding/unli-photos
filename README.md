@@ -1,30 +1,56 @@
 # unli-photos
 
-Auto-sync media to Google Photos with Google Pixel unlimited-storage spoofing,
-powered by [`gotohp-cli`](https://github.com/xob0t/gotohp). A clean, professional
-Textual TUI rewrite of the
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+Auto-sync local media folders to Google Photos using the Pixel
+unlimited-storage quota path, powered by
+[`gotohp-cli`](https://github.com/xob0t/gotohp). One thread-based sync engine,
+two frontends: a professional [Textual](https://textual.textualize.io/) TUI and
+a headless daemon for a systemd user service.
+
+A Linux rewrite of the
 [GoogleUnlimited](https://github.com/shishir0x/GoogleUnlimited) orchestration
-concept for Linux.
+concept with a real engine/UI separation. unli-photos does not implement any
+upload protocol itself; it orchestrates `gotohp-cli`, which owns auth and the
+Google device API.
 
-## What it does
+> [!WARNING]
+> Not affiliated with or endorsed by Google. The unlimited-storage behavior
+> depends on the device emulation in `gotohp`; Google can change its APIs or
+> policies at any time. Use at your own risk with an account you accept that
+> for, and keep independent backups of your media.
 
-- Watches folders with inotify: `~/Pictures` by default (deliberately narrow -
-  add more explicitly in the Folders tab or `config.toml`), debounces file
-  events, waits until files are fully written, and uploads
-  images/videos/RAW to Google Photos through `gotohp-cli`.
-- Deduplicates: exact-path records catch changed files; a name+size fallback
-  key with SHA-256 verification catches re-downloaded copies under new paths.
-- Never re-uploads what it already uploaded, survives restarts (SQLite state),
-  and retries failed uploads up to 3 times before giving up.
-- Runs as an interactive TUI, a headless daemon (`--headless`, made for a
-  systemd user service), or a one-shot drain (`--once`).
+## Features
+
+- **Set-and-forget watching**: inotify watcher with debouncing, waits until
+  files are fully written (size-stable + lock probe) before uploading.
+- **Deduplication**: exact-path upload records catch changed files; a
+  name + size fallback key with SHA-256 verification catches re-downloaded
+  copies under new paths. Already-uploaded files are never re-uploaded.
+- **Retries**: failed uploads are retried 3 times, then dropped with a "GAVE
+  UP" log - no poisoned-file hot loops.
+- **Narrow by default**: watches `~/Pictures` only; extra folders are always
+  explicit (TUI Folders tab or `config.toml`).
+- **Three run modes**: interactive TUI, headless daemon (`--headless`, made
+  for systemd), one-shot drain (`--once`, cron-like).
+- **Secure by default**: OAuth tokens travel via stdin only (never argv or
+  shell history), credential files are chmod 600, the gotohp binary is
+  verified against a pinned SHA-256 and installed chmod 700.
+
+## Requirements
+
+- Linux (x86_64), Python 3.12+
+- [uv](https://docs.astral.sh/uv/)
+- `systemctl`/`loginctl` for the bundled service management (optional)
+
+> Note: gotohp v0.11.0 ships an amd64-only CLI asset; aarch64/arm64 hosts are
+> not supported until upstream publishes a matching release.
 
 ## Install
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/):
-
 ```sh
-git clone <this-repo> unli-photos
+git clone https://github.com/onehandcoding/unli-photos.git
 cd unli-photos
 uv sync --extra dev
 ```
@@ -36,17 +62,18 @@ uv run unli
 ```
 
 1. **Setup tab**: click *Download gotohp-cli*. The app fetches the pinned
-   release (`v0.11.0`), verifies its SHA-256 against a built-in manifest, and
-   installs it to `~/.local/share/unli-photos/bin/gotohp-cli`.
-2. **Accounts tab**: press `a` and paste an OAuth token (gotohp accepts a
-   Google Photos OAuth token; see the gotohp README for how to obtain one).
-   The token is piped to `gotohp-cli creds add -` over stdin, never argv or
-   shell history, and the config file is chmod 600 afterward.
-3. **Folders tab**: add or remove watch folders (start with `~/Pictures`
-   already covered by the default); changes are saved to `config.toml` and the
-   watcher restarts immediately.
-4. **Dashboard tab**: press `s` to start/stop the engine, `r` for a rescan
-   (catch-up: uploads only new/changed files), `q` to quit.
+   release (`v0.11.0`), verifies its SHA-256, and installs it to
+   `~/.local/share/unli-photos/bin/gotohp-cli`.
+2. **Accounts tab**: press `a` and paste an OAuth token. See the
+   [gotohp README](https://github.com/xob0t/gotohp#sign-in) for how to obtain
+   one (the Embedded Setup + DevTools cookie flow works from a plain browser).
+   The token is piped to `gotohp-cli creds add -` over stdin and the config
+   file is chmod 600 afterward.
+3. **Folders tab**: watch `~/Pictures` by default or turn it off; add explicit
+   folders. Changes persist to `config.toml` and the watcher restarts
+   immediately.
+4. **Dashboard tab**: press `s` to start/stop the engine, `r` for a catch-up
+   rescan, `q` to quit.
 
 ### Keys
 
@@ -96,28 +123,23 @@ loginctl enable-linger   # keep running after logout
 | `~/.config/unli-photos/config.toml` | watch folders + options |
 | `~/.config/unli-photos/gotohp.config` | gotohp credentials (chmod 600) |
 | `~/.local/share/unli-photos/state.db` | upload history, retry queue, logs |
-| `~/.local/share/unli-photos/bin/gotohp-cli` | pinned engine binary |
+| `~/.local/share/unli-photos/bin/gotohp-cli` | pinned upload binary |
 | `~/.config/systemd/user/unli-photos.service` | user service unit |
 
-## Architecture
+## How it works
 
 ```
-src/unli_photos/
-  media.py      extension filter + size formatting
-  config.py     AppConfig <-> config.toml, XDG paths
-  storage/      SQLite repo: uploads, retry queue, logs (WAL, locked)
-  engine/       SyncEngine: watchdog -> debounce -> readiness -> dedup
-                -> upload worker, retry flush (30s), safety sweep (15m)
-  photos/       gotohp-cli wrapper (upload/creds), binary manager
-                (pinned SHA-256), systemd user service manager
-  tui/          Textual app; the engine is thread-based, events are
-                bridged into the UI via call_from_thread
-  cli.py        entrypoint: TUI / --headless / --once / --version
+watchdog events -> debounce (1.5s) -> file readiness (size-stable + lock probe)
+  -> dedup (SQLite records; exact path, then name+size with SHA-256 verify)
+  -> upload via gotohp-cli subprocess -> record/tally in SQLite
+monitor thread: retry flush every 30s, safety sweep every 15 min
 ```
 
-The engine never imports Textual. It runs on its own threads and publishes
-frozen dataclass events; both the TUI and the headless listener are thin
-view layers. See `docs/superpowers/specs/` for the full design document.
+The engine runs on its own threads and publishes frozen dataclass events; both
+the TUI and the headless listener are thin view layers that never touch sync
+logic. A force rescan (`Shift+R`) bypasses dedup for a true re-upload - useful
+after deleting media in Google Photos (dedup normally keeps deleted media from
+re-uploading while a local record exists).
 
 ## Development
 
@@ -126,6 +148,24 @@ uv run pytest          # test suite
 uv run ruff check .    # lint
 ```
 
+See [docs/superpowers/specs/](docs/superpowers/) for the design document and
+implementation plan.
+
+## Credits & Attribution
+
+- [`xob0t/gotohp`](https://github.com/xob0t/gotohp) (MIT) - **the upload
+  engine**. All Google authentication, device emulation, and upload protocol
+  work belongs to gotohp. unli-photos only orchestrates its CLI.
+- [`shishir0x/GoogleUnlimited`](https://github.com/shishir0x/GoogleUnlimited)
+  - the original auto-sync orchestration concept that inspired this project
+  (dedup keys, retry policy, readiness checks, folder design). No code was
+  copied; this is an independent Linux/Python implementation.
+- [Textual](https://github.com/Textualize/textual) (MIT) - the TUI framework.
+- [watchdog](https://github.com/gorakhargosh/watchdog) (Apache-2.0) - inotify
+  file watching.
+- [httpx](https://github.com/encode/httpx) (BSD-3-Clause) - pinned binary
+  download.
+
 ## License
 
-MIT
+[MIT](LICENSE)
