@@ -39,9 +39,10 @@ CREATE INDEX IF NOT EXISTS idx_logs_level   ON logs(level);
 class Repo:
     """Single-connection data access object. All queries are parameterized."""
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
+    def __init__(self, conn: sqlite3.Connection, db_path: Path | None = None) -> None:
         self._conn = conn
         self._lock = threading.RLock()
+        self.db_path = db_path
 
     @classmethod
     def open(cls, db_path: Path) -> Repo:
@@ -53,7 +54,7 @@ class Repo:
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute("PRAGMA busy_timeout = 30000")
             conn.executescript(_SCHEMA)
-        return cls(conn)
+        return cls(conn, db_path)
 
     # -- lifecycle ----------------------------------------------------------
 

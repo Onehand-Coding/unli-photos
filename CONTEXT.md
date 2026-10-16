@@ -205,6 +205,18 @@ hardening of the original PowerShell/bash scripts.
 behavior; prevents a poisoned file from looping forever.
 **Alternatives Considered:** Unlimited retries (rejected: hot loop).
 
+### Single-instance guard via flock
+**Choice:** Every engine start (TUI start/stop, `--headless`, `--once`)
+acquires an flock-based `engine.lock` in the XDG state dir; a second
+engine refuses to start with `EngineLocked` (holder PID + timestamp in
+the file). **Status:** Current. **Reason:** TUI + uv-tool + dev-checkout
+installs share XDG dirs, so the guard works across installs and
+survives crashes (kernel releases flock). Headless exits 0 on
+EngineLocked so systemd does not crash-loop.
+**Alternatives Considered:** PID file liveness checks (rejected: stale
+PID reuse races), sqlite-level guard (rejected: couples persistence to
+process coordination).
+
 ---
 
 ## 9. Domain Knowledge

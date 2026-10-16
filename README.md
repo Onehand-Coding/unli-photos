@@ -37,6 +37,10 @@ Google device API.
 - **Secure by default**: OAuth tokens travel via stdin only (never argv or
   shell history), credential files are chmod 600, the gotohp binary is
   verified against a pinned SHA-256 and installed chmod 700.
+- **Single-instance guard**: every engine (TUI, headless, `--once`) holds a
+  lock on the XDG state dir; a second engine anywhere - even from a different
+  install - refuses to start and says who is running. Crash-safe (kernel
+  releases the lock when a process dies).
 
 ## Requirements
 

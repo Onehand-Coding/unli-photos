@@ -24,6 +24,7 @@ from unli_photos.engine.events import (
     UploadStarted,
     UploadSucceeded,
 )
+from unli_photos.engine.lock import EngineLocked
 from unli_photos.media import format_size
 from unli_photos.photos.binary import find_binary
 from unli_photos.photos.uploader import CredsClient, GotophpUploader
@@ -141,7 +142,11 @@ def run_headless(
     repo = Repo.open(paths.db_path)
     listener = HeadlessListener()
     engine = build_engine(paths, repo, listener)
-    engine.start()
+    try:
+        engine.start()
+    except EngineLocked as exc:
+        print(f"not starting: {exc}", flush=True)
+        return 0
     print("unli-photos running headless; Ctrl+C to stop", flush=True)
     try:
         while not stop.is_set() and engine.running:
@@ -165,6 +170,9 @@ def run_once(paths: Paths) -> int:
     try:
         engine = build_engine(paths, repo, HeadlessListener())
         engine.run_once()
+    except EngineLocked as exc:
+        print(f"skipping once-run: {exc}", flush=True)
+        return 0
     finally:
         repo.close()
     return 0

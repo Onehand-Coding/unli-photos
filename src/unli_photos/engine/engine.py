@@ -30,6 +30,7 @@ from unli_photos.engine.events import (
     UploadStarted,
     UploadSucceeded,
 )
+from unli_photos.engine.lock import EngineLock, lock_path_for
 from unli_photos.engine.readiness import Readiness, wait_for_file_ready
 from unli_photos.engine.uploader import Uploader, UploadResult
 from unli_photos.media import format_size, is_media_file
@@ -84,6 +85,8 @@ class SyncEngine:
         self._worker: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
         self._engine_started = False
+        self._lock_path = lock_path_for(repo.db_path or Path("state.db"))
+        self._instance_lock = EngineLock(self._lock_path)
 
     # -- event plumbing ------------------------------------------------------
 
@@ -135,26 +138,37 @@ class SyncEngine:
         with self._lock:
             if self._engine_started:
                 return
-            self._engine_started = True
-        self._stop_event.clear()
-        self._repo.prune_logs()
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True, name="unli-upload")
-        self._worker.start()
-        dirs = self.watch_dirs()
-        self._start_observer(dirs)
-        self._monitor = threading.Thread(
-            target=self._monitor_loop, daemon=True, name="unli-monitor"
-        )
-        self._monitor.start()
-        self._emit(EngineStarted(watch_dirs=tuple(str(d) for d in dirs)))
-        # Phase 1: startup scan + pre-existing retry queue, each candidate once
-        # (fresh failures are picked up by the monitor's next flush, original parity).
-        for path in self._startup_candidates(dirs):
-            self.enqueue(path)
+        self._instance_lock.acquire()  # raises EngineLocked if another engine runs
+        try:
+            with self._lock:
+                self._engine_started = True
+            self._stop_event.clear()
+            self._repo.prune_logs()
+            self._worker = threading.Thread(
+                target=self._worker_loop, daemon=True, name="unli-upload"
+            )
+            self._worker.start()
+            dirs = self.watch_dirs()
+            self._start_observer(dirs)
+            self._monitor = threading.Thread(
+                target=self._monitor_loop, daemon=True, name="unli-monitor"
+            )
+            self._monitor.start()
+            self._emit(EngineStarted(watch_dirs=tuple(str(d) for d in dirs)))
+            # Phase 1: startup scan + pre-existing retry queue, each candidate once
+            # (fresh failures are picked up by the monitor's next flush, original parity).
+            for path in self._startup_candidates(dirs):
+                self.enqueue(path)
+        except BaseException:
+            self._instance_lock.release()
+            with self._lock:
+                self._engine_started = False
+            raise
 
     def stop(self) -> None:
         with self._lock:
             if not self._engine_started:
+                self._instance_lock.release()
                 return
             self._engine_started = False
         self._stop_event.set()
@@ -169,6 +183,7 @@ class SyncEngine:
         if self._monitor is not None:
             self._monitor.join(timeout=3)
             self._monitor = None
+        self._instance_lock.release()
         self._emit(EngineStopped())
 
     @property
@@ -309,14 +324,18 @@ class SyncEngine:
         Pre-existing retry entries join the scan list; files that fail during this
         pass are handled by a later pass/run, mirroring the original phase model.
         """
-        self._stop_event.clear()
-        self._repo.prune_logs()
-        dirs = self.watch_dirs()
-        self._emit(EngineStarted(watch_dirs=tuple(str(d) for d in dirs)))
-        candidates = self._startup_candidates(dirs)
-        for path in candidates:
-            self._process_candidate(path, force=False)
-        self._emit(EngineStopped())
+        self._instance_lock.acquire()
+        try:
+            self._stop_event.clear()
+            self._repo.prune_logs()
+            dirs = self.watch_dirs()
+            self._emit(EngineStarted(watch_dirs=tuple(str(d) for d in dirs)))
+            candidates = self._startup_candidates(dirs)
+            for path in candidates:
+                self._process_candidate(path, force=False)
+            self._emit(EngineStopped())
+        finally:
+            self._instance_lock.release()
 
     def _startup_candidates(self, dirs: Iterable[Path]) -> list[Path]:
         """Scan candidates plus existing retry entries; only files present once."""

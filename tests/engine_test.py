@@ -15,6 +15,7 @@ from unli_photos.engine.events import (
     UploadSkipped,
     UploadSucceeded,
 )
+from unli_photos.engine.lock import EngineLocked
 from unli_photos.engine.uploader import UploadResult
 from unli_photos.storage.repo import Repo
 
@@ -262,3 +263,43 @@ class TestWatchdog:
         assert any(isinstance(e, EngineStopped) for e in evs)
         # double stop is safe
         eng.stop()
+
+
+class TestSingleInstance:
+    def test_second_engine_refused_until_first_stops(self, watch: Path, repo: Repo):
+        fake = FakeUploader()
+        eng1, _ = make_engine(repo, fake, watch)
+        eng1.start()
+        eng2, _ = make_engine(repo, fake, watch)
+        with pytest.raises(EngineLocked):
+            eng2.start()
+        assert not eng2.running
+        eng1.stop()
+        eng3, _ = make_engine(repo, fake, watch)
+        eng3.start()
+        eng3.stop()
+
+    def test_run_once_refused_while_engine_running(self, watch: Path, repo: Repo):
+        fake = FakeUploader()
+        eng, _ = make_engine(repo, fake, watch)
+        other, _ = make_engine(repo, fake, watch)
+        eng.start()
+        try:
+            with pytest.raises(EngineLocked):
+                other.run_once()
+        finally:
+            eng.stop()
+        other.run_once()  # lock free again: drains without error
+        other.run_once()  # released after run: sequential reuse works
+
+    def test_lock_file_records_holder(self, watch: Path, repo: Repo):
+        fake = FakeUploader()
+        eng, _ = make_engine(repo, fake, watch)
+        eng.start()
+        try:
+            lock_file = repo.db_path
+            assert lock_file is not None
+            text = (lock_file.parent / "engine.lock").read_text()
+            assert str(__import__("os").getpid()) in text
+        finally:
+            eng.stop()
