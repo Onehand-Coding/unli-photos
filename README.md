@@ -151,6 +151,15 @@ uv run ruff check .    # lint
 See [docs/superpowers/specs/](docs/superpowers/) for the design document and
 implementation plan.
 
+## Contributing
+
+Contributions are welcome! Open an issue for bugs or feature ideas; pull
+requests are equally appreciated. Before submitting a PR:
+
+- Point it at `main` with a focused scope (one feature or fix per PR).
+- Run the quality gates: `uv run pytest` and `uv run ruff check .` must pass.
+- New behavior needs a test; changed behavior needs an updated one.
+
 ## Credits & Attribution
 
 - [`xob0t/gotohp`](https://github.com/xob0t/gotohp) (MIT) - **the upload
