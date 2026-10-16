@@ -45,15 +45,16 @@ uv run unli
 3. **Folders tab**: add or remove watch folders (start with `~/Pictures`
    already covered by the default); changes are saved to `config.toml` and the
    watcher restarts immediately.
-4. **Dashboard tab**: press `s` to start/stop the engine, `r` to force a
-   rescan, `q` to quit.
+4. **Dashboard tab**: press `s` to start/stop the engine, `r` for a rescan
+   (catch-up: uploads only new/changed files), `q` to quit.
 
 ### Keys
 
 | Key | Action |
 | --- | ------ |
 | `q` | quit |
-| `r` | force rescan (bypasses dedup) |
+| `r` | rescan watch folders (dedup-aware catch-up) |
+| `R` | force re-upload of every media file (bypasses dedup) |
 | `s` | start/stop the sync engine |
 | `a` | add an account token |
 

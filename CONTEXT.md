@@ -220,7 +220,10 @@ behavior; prevents a poisoned file from looping forever.
 - Dedup keys on exact path first (size/hash change re-uploads), with a
   name|size fallback verified by SHA-256; a file deleted from Google
   Photos will NOT re-upload while its record exists.
-- `--force` bypasses dedup (used by `request_rescan`).
+- `--force` bypasses dedup. Plain rescan (`r` / `request_rescan()`) is a
+  dedup-aware catch-up (uploads only unrecorded/changed files); true force
+  re-upload is explicit (`Shift+R` / `request_rescan(force=True)`) and
+  re-runs gotohp `--force` for every media file.
 - Files that aren't ready (still downloading/recording) re-queue
   WITHOUT an attempt penalty; only real upload failures consume
   attempts.
@@ -390,7 +393,8 @@ verification (tests + lint) over quick demos.
   possible until upstream ships one.
 - Single active Google account at a time (gotohp model).
 - Dedup means deleting a photo in Google Photos will not re-upload it
-  while the local record exists; use force-rescan for a true re-upload.
+  while the local record exists; use force re-upload (Shift+R) for a
+  true re-upload.
 
 ---
 
