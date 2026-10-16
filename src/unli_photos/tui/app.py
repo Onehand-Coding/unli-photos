@@ -266,12 +266,10 @@ class UnliApp(App[None]):
         if self._engine.running:
             self._engine_pending = "stopping"
             self._set_engine_status()
-            self.notify("Stopping engine...")
             self._run_bg(self._engine.stop, self._toggle_done("stopped"))
         else:
             self._engine_pending = "starting"
             self._set_engine_status()
-            self.notify("Starting engine...")
             self._run_bg(self._engine.start, self._toggle_done("running"))
 
     def _toggle_done(self, final_state: str):
@@ -279,8 +277,6 @@ class UnliApp(App[None]):
             self._engine_pending = None
             if isinstance(result, Exception):
                 self.notify(f"Engine error: {result}", severity="error")
-            else:
-                self.notify(f"Engine {final_state}")
             self._set_engine_status()
 
         return done
