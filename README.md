@@ -50,7 +50,7 @@ Google device API.
 ## Install
 
 ```sh
-git clone https://github.com/onehandcoding/unli-photos.git
+git clone https://github.com/Onehand-Coding/unli-photos.git
 cd unli-photos
 uv sync --extra dev
 ```
