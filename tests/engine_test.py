@@ -1,8 +1,6 @@
-import os
 import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 
@@ -13,7 +11,6 @@ from unli_photos.engine.events import (
     EngineStopped,
     LogMessage,
     RescanStarted,
-    UploadFailed,
     UploadSkipped,
     UploadSucceeded,
 )

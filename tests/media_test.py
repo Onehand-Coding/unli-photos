@@ -27,7 +27,7 @@ def test_media_covers_full_original_list():
         ".mp4", ".mov", ".mkv", ".avi", ".m4v", ".3gp", ".3g2", ".wmv",
         ".webm", ".mpg", ".mpeg", ".mts", ".m2ts", ".ts", ".flv", ".vob",
     }
-    assert MEDIA_EXTENSIONS == frozenset(expected)
+    assert frozenset(expected) == MEDIA_EXTENSIONS
     assert len(MEDIA_EXTENSIONS) >= 37
 
 

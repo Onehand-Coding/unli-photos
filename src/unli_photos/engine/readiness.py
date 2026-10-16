@@ -34,9 +34,7 @@ def _probe_locked(path: Path) -> bool:
             )
         except (OSError, subprocess.SubprocessError):
             return False
-        if proc.returncode == 0:
-            return True
-        return False
+        return proc.returncode == 0
     return False
 
 

@@ -44,7 +44,7 @@ class Repo:
         self._lock = threading.RLock()
 
     @classmethod
-    def open(cls, db_path: Path) -> "Repo":
+    def open(cls, db_path: Path) -> Repo:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(db_path), check_same_thread=False, isolation_level=None)
         conn.row_factory = sqlite3.Row
@@ -61,7 +61,7 @@ class Repo:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> "Repo":
+    def __enter__(self) -> Repo:
         return self
 
     def __exit__(
@@ -182,7 +182,11 @@ class Repo:
                 "SELECT path, attempts, last_attempt FROM retry_queue ORDER BY path"
             ).fetchall()
         return [
-            RetryRecord(path=r["path"], attempts=int(r["attempts"]), last_attempt=r["last_attempt"] or "")
+            RetryRecord(
+                path=r["path"],
+                attempts=int(r["attempts"]),
+                last_attempt=r["last_attempt"] or "",
+            )
             for r in rows
         ]
 

@@ -74,14 +74,14 @@ class TestLogs:
             repo.log("OK", f"msg-{i}")
         logs = repo.recent_logs(limit=3)
         assert len(logs) == 3
-        assert [l.message for l in logs] == ["msg-4", "msg-3", "msg-2"]
+        assert [entry.message for entry in logs] == ["msg-4", "msg-3", "msg-2"]
         assert isinstance(logs[0], LogEntry)
 
     def test_prune_keeps_recent(self, repo: Repo):
         repo.log("OK", "keep")
         # older-than-N-days rows are pruned; freshly inserted survive
         repo.prune_logs(days=30)
-        assert [l.message for l in repo.recent_logs()] == ["keep"]
+        assert [entry.message for entry in repo.recent_logs()] == ["keep"]
 
 
 class TestNameSize:

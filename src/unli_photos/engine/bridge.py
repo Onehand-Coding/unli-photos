@@ -7,11 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from watchdog.events import (
-    FileSystemEvent,
-    FileSystemEventHandler,
     FileCreatedEvent,
     FileModifiedEvent,
     FileMovedEvent,
+    FileSystemEvent,
+    FileSystemEventHandler,
 )
 
 from unli_photos.engine.debounce import Debouncer

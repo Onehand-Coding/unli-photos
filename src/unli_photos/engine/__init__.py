@@ -15,7 +15,7 @@ from unli_photos.engine.events import (
     UploadStarted,
     UploadSucceeded,
 )
-from unli_photos.engine.uploader import UploadResult, Uploader
+from unli_photos.engine.uploader import Uploader, UploadResult
 
 __all__ = [
     "EngineEvent",

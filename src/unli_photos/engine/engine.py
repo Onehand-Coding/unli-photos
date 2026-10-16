@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import queue
 import threading
@@ -30,7 +31,7 @@ from unli_photos.engine.events import (
     UploadSucceeded,
 )
 from unli_photos.engine.readiness import Readiness, wait_for_file_ready
-from unli_photos.engine.uploader import UploadResult, Uploader
+from unli_photos.engine.uploader import Uploader, UploadResult
 from unli_photos.media import format_size, is_media_file
 from unli_photos.storage.repo import Repo
 
@@ -92,10 +93,8 @@ class SyncEngine:
         fn = self._listener
         if fn is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             fn(event)
-        except Exception:
-            pass
 
     def _log(self, level: str, message: str) -> None:
         self._repo.log(level, message)
@@ -360,7 +359,7 @@ class SyncEngine:
         started = time.perf_counter()
         try:
             result = self._uploader.upload(path, force=force)
-        except Exception as exc:  # noqa: BLE001 - worker must never die
+        except Exception as exc:
             result = UploadResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         duration = time.perf_counter() - started
 

@@ -1,7 +1,4 @@
-import json
-import os
 from pathlib import Path
-from typing import Any
 
 from unli_photos.config import AppConfig, default_watch_paths, load_config, save_config
 
