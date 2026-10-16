@@ -79,8 +79,8 @@ def format_event_line(event: EngineEvent) -> str:
             return f"FAIL {_basename(path)}: {detail} (attempt {attempts})"
         case RescanStarted():
             return "rescan started"
-        case RescanDone(queued=queued):
-            return f"rescan queued {queued} file(s)"
+        case RescanDone(scanned=scanned, queued=queued):
+            return f"rescan scanned {scanned}, queued {queued} file(s)"
         case PrecheckIssue(message=message):
             return f"precheck: {message}"
         case LogMessage(level=level, message=message):

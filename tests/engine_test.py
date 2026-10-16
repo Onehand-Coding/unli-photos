@@ -10,6 +10,7 @@ from unli_photos.engine.events import (
     EngineStarted,
     EngineStopped,
     LogMessage,
+    RescanDone,
     RescanStarted,
     UploadSkipped,
     UploadSucceeded,
@@ -162,7 +163,7 @@ class TestRetry:
 
 
 class TestRescan:
-    def test_rescan_forces_upload_and_events(self, watch: Path, repo: Repo):
+    def test_rescan_catch_up_skips_uploaded(self, watch: Path, repo: Repo):
         p = watch / "IMG_1.jpg"
         p.write_bytes(b"photo")
         fake = FakeUploader()
@@ -171,8 +172,37 @@ class TestRescan:
         fake.calls.clear()
         evs.clear()
         eng.rescan_now()
+        assert fake.calls == []
+        done = [e for e in evs if isinstance(e, RescanDone)]
+        assert done == [RescanDone(scanned=1, queued=0)]
+
+    def test_rescan_catch_up_uploads_unrecorded_only(self, watch: Path, repo: Repo):
+        old = watch / "IMG_old.jpg"
+        old.write_bytes(b"v1")
+        fake = FakeUploader()
+        eng, _ = make_engine(repo, fake, watch)
+        eng.run_once()
+        fake.calls.clear()
+        new = watch / "IMG_new.jpg"
+        new.write_bytes(b"fresh")
+        eng.rescan_now()
+        assert [(c[0], c[1]) for c in fake.calls] == [(str(new), False)]
+        assert repo.is_recorded(str(new))
+        assert repo.is_recorded(str(new))
+
+    def test_rescan_force_reuploads_and_events(self, watch: Path, repo: Repo):
+        p = watch / "IMG_1.jpg"
+        p.write_bytes(b"photo")
+        fake = FakeUploader()
+        eng, evs = make_engine(repo, fake, watch)
+        eng.run_once()
+        fake.calls.clear()
+        evs.clear()
+        eng.rescan_now(force=True)
         assert [(c[0], c[1]) for c in fake.calls] == [(str(p), True)]
         assert any(isinstance(e, RescanStarted) for e in evs)
+        done = [e for e in evs if isinstance(e, RescanDone)]
+        assert done == [RescanDone(scanned=1, queued=1)]
         assert any(isinstance(e, UploadSucceeded) for e in evs)
 
 

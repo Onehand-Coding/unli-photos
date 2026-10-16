@@ -61,6 +61,7 @@ class RescanStarted(EngineEvent):
 
 @dataclass(frozen=True)
 class RescanDone(EngineEvent):
+    scanned: int
     queued: int
 
 

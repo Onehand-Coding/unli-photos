@@ -114,7 +114,10 @@ class TestFormatEventLine:
             EngineStarted(watch_dirs=("/a", "/b"))
         )
         assert format_event_line(EngineStopped()) == "stopped"
-        assert "queued 3" in format_event_line(RescanDone(queued=3))
+        assert "scanned 10" in format_event_line(
+            RescanDone(scanned=10, queued=3)
+        )
+        assert "queued 3" in format_event_line(RescanDone(scanned=10, queued=3))
         assert "rescan" in format_event_line(RescanStarted())
 
     def test_log_and_precheck(self):

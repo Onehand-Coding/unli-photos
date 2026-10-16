@@ -20,6 +20,7 @@ class FakeEngine:
         self.listeners = []
         self.started = False
         self.rescans = 0
+        self.rescan_forces: list[bool] = []
         self.restarts = 0
         self.stop_delay = 0.0
 
@@ -38,8 +39,9 @@ class FakeEngine:
     def running(self):
         return self.started
 
-    def request_rescan(self):
+    def request_rescan(self, force: bool = False):
         self.rescans += 1
+        self.rescan_forces.append(force)
 
     def restart_watcher(self):
         self.restarts += 1
@@ -127,6 +129,21 @@ def test_rescan_binding(env_paths):
 
     run_async(go())
     assert engine.rescans == 1
+    assert engine.rescan_forces == [False]
+
+
+def test_force_rescan_binding(env_paths):
+    paths, _ = env_paths
+    engine = FakeEngine()
+
+    async def go():
+        async with UnliApp(paths=paths, engine=engine).run_test(size=(100, 40)) as pilot:
+            await pilot.press("R")
+            await pilot.pause()
+
+    run_async(go())
+    assert engine.rescans == 1
+    assert engine.rescan_forces == [True]
 
 
 def test_quit_binding(env_paths):

@@ -51,7 +51,8 @@ class EngineIntervals:
 
 
 _STOP = object()          # worker shutdown sentinel
-_RESCAN = object()        # rescan request sentinel
+_RESCAN = object()        # catch-up rescan sentinel (dedup-aware)
+_FORCE_RESCAN = object()  # force re-upload sentinel (bypasses dedup)
 
 
 class SyncEngine:
@@ -209,19 +210,19 @@ class SyncEngine:
             self._active.add(key)
         self._queue.put(path)
 
-    def request_rescan(self) -> None:
-        """Queued force rescan (safe from any thread while running)."""
+    def request_rescan(self, force: bool = False) -> None:
+        """Queued rescan (safe from any thread while running)."""
         if self._engine_started:
-            self._queue.put(_RESCAN)
+            self._queue.put(_FORCE_RESCAN if force else _RESCAN)
         else:
-            self.rescan_now()
+            self.rescan_now(force=force)
 
-    def rescan_now(self) -> None:
-        """Synchronous force rescan (used by tests and stopped engine)."""
+    def rescan_now(self, force: bool = False) -> None:
+        """Synchronous rescan (used by tests and stopped engine)."""
         if self._engine_started:
-            self._queue.put(_RESCAN)
+            self._queue.put(_FORCE_RESCAN if force else _RESCAN)
             return
-        self._do_rescan()
+        self._do_rescan(force=force)
 
     def _worker_loop(self) -> None:
         while True:
@@ -233,6 +234,11 @@ class SyncEngine:
                     break
                 self._do_rescan()
                 continue
+            if item is _FORCE_RESCAN:
+                if self._stop_event.is_set():
+                    break
+                self._do_rescan(force=True)
+                continue
             path = item if isinstance(item, Path) else Path(str(item))
             try:
                 self._process_candidate(path, force=False)
@@ -240,17 +246,23 @@ class SyncEngine:
                 with self._lock:
                     self._active.discard(str(path))
 
-    def _do_rescan(self) -> None:
-        """Force rescan: bypasses local dedup (gotohp/server side skips existing).
+    def _do_rescan(self, force: bool = False) -> None:
+        """Rescan watch dirs inline in the worker thread.
 
-        Runs inline in the worker thread while the engine is running (keeping the
-        one-upload-at-a-time invariant), synchronously when stopped.
+        Default (catch-up): re-check every media file against the upload
+        record; only unrecorded/changed files are processed. Force mode
+        bypasses local dedup entirely (gotohp/server side skips existing).
         """
         self._emit(RescanStarted())
         candidates = self._media_candidates(self.watch_dirs())
-        self._emit(RescanDone(queued=len(candidates)))
-        for path in candidates:
-            self._process_candidate(path, force=True)
+        todo = (
+            candidates
+            if force
+            else [p for p in candidates if needs_upload(p, self._repo)]
+        )
+        self._emit(RescanDone(scanned=len(candidates), queued=len(todo)))
+        for path in todo:
+            self._process_candidate(path, force=force)
 
     def _monitor_loop(self) -> None:
         next_sweep = time.monotonic() + self._iv.sweep

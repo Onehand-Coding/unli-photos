@@ -103,6 +103,7 @@ class UnliApp(App[None]):
     BINDINGS: ClassVar[list] = [
         ("q", "quit", "Quit"),
         ("r", "rescan", "Rescan"),
+        ("R", "force_rescan", "Force re-upload"),
         ("s", "toggle_engine", "Start/stop"),
         ("a", "add_token", "Add token"),
     ]
@@ -257,6 +258,11 @@ class UnliApp(App[None]):
         if self._engine is not None:
             self._engine.request_rescan()
             self.notify("Rescan requested")
+
+    def action_force_rescan(self) -> None:
+        if self._engine is not None:
+            self._engine.request_rescan(force=True)
+            self.notify("Force re-upload started")
 
     def action_toggle_engine(self) -> None:
         if self._engine is None:
