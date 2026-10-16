@@ -24,17 +24,23 @@ from textual.widgets import (
     ProgressBar,
     RichLog,
     Static,
+    Switch,
     TabbedContent,
     TabPane,
 )
 
 from unli_photos.cli import build_engine, format_event_line, precheck
-from unli_photos.config import AppConfig, Paths, load_config, save_config
+from unli_photos.config import (
+    AppConfig,
+    Paths,
+    default_watch_paths,
+    load_config,
+    save_config,
+)
 from unli_photos.engine.events import (
     EngineEvent,
     EngineStarted,
     EngineStopped,
-    LogMessage,
     UploadFailed,
     UploadSkipped,
     UploadSucceeded,
@@ -106,6 +112,7 @@ class UnliApp(App[None]):
         self._paths = paths
         self._engine = engine
         self._repo: Repo | None = None
+        self._engine_pending: str | None = None
         self._uploaded = 0
         self._retries = 0
 
@@ -117,12 +124,16 @@ class UnliApp(App[None]):
             with TabPane("Dashboard", id="dashboard"):
                 yield Static("engine: stopped", id="engine-status")
                 yield Static("uploaded 0 | retries 0", id="stats")
-                yield RichLog(id="activity", markup=False, highlight=False)
+                yield Static("watching: (loading)", id="watching")
+                yield Static("last: -", id="last-event")
             with TabPane("Uploads", id="uploads-tab"):
                 yield DataTable(id="uploads")
             with TabPane("Logs", id="logs-tab"):
                 yield RichLog(id="logs", markup=False, highlight=False)
             with TabPane("Folders", id="folders"):
+                with Horizontal(id="defaults-row"):
+                    yield Label("Watch ~/Pictures by default:")
+                    yield Switch(id="defaults-toggle")
                 yield ListView(id="folder-list")
                 with Horizontal():
                     yield Input(
@@ -162,6 +173,9 @@ class UnliApp(App[None]):
             self._engine.add_listener(self._post_event)
             self._engine.start()
             self._set_engine_status()
+        user, defaults = self._folder_model()
+        effective = [*user, *defaults]
+        self._set_watching(tuple(effective))
         self._refresh_folders()
         self._refresh_accounts()
         self._refresh_setup()
@@ -187,7 +201,8 @@ class UnliApp(App[None]):
     def _handle_event(self, event: EngineEvent) -> None:
         line = format_event_line(event)
         try:
-            self.query_one("#activity", RichLog).write(line)
+            self.query_one("#logs", RichLog).write(line)
+            self.query_one("#last-event", Static).update(f"last: {line}")
             self.query_one("#uploads", DataTable)
         except Exception:
             return  # widgets not mounted yet
@@ -200,13 +215,19 @@ class UnliApp(App[None]):
                 self._add_row(path, 0, "FAIL")
             case UploadSkipped(path=path):
                 self._add_row(path, 0, "skip")
-            case LogMessage(level=level, message=message):
-                self.query_one("#logs", RichLog).write(f"[{level}] {message}")
-            case EngineStarted():
+            case EngineStarted(watch_dirs=dirs):
                 self._set_engine_status()
+                self._set_watching(dirs)
             case EngineStopped():
                 self._set_engine_status()
         self._set_stats()
+
+    def _set_watching(self, dirs: tuple[str, ...]) -> None:
+        names = ", ".join(dirs) if len(dirs) <= 3 else f"{len(dirs)} dirs"
+        with contextlib.suppress(Exception):
+            self.query_one("#watching", Static).update(
+                f"watching {len(dirs)} folder(s): {names}"
+            )
 
     def _add_row(self, path: str, size: int, status: str) -> None:
         table = self.query_one("#uploads", DataTable)
@@ -215,8 +236,11 @@ class UnliApp(App[None]):
         table.add_row(stamp, name, format_size(size), status)
 
     def _set_engine_status(self) -> None:
-        running = self._engine is not None and self._engine.running
-        state = "running" if running else "stopped"
+        if self._engine_pending:
+            state = f"{self._engine_pending}..."
+        else:
+            running = self._engine is not None and self._engine.running
+            state = "running" if running else "stopped"
         with contextlib.suppress(Exception):
             self.query_one("#engine-status", Static).update(f"engine: {state}")
 
@@ -236,13 +260,30 @@ class UnliApp(App[None]):
     def action_toggle_engine(self) -> None:
         if self._engine is None:
             return
+        if self._engine_pending is not None:
+            self.notify(f"Engine is {self._engine_pending}, one moment...", timeout=3)
+            return
         if self._engine.running:
-            self._engine.stop()
-            self.notify("Engine stopped")
+            self._engine_pending = "stopping"
+            self._set_engine_status()
+            self.notify("Stopping engine...")
+            self._run_bg(self._engine.stop, self._toggle_done("stopped"))
         else:
-            self._engine.start()
-            self.notify("Engine started")
-        self._set_engine_status()
+            self._engine_pending = "starting"
+            self._set_engine_status()
+            self.notify("Starting engine...")
+            self._run_bg(self._engine.start, self._toggle_done("running"))
+
+    def _toggle_done(self, final_state: str):
+        def done(result) -> None:
+            self._engine_pending = None
+            if isinstance(result, Exception):
+                self.notify(f"Engine error: {result}", severity="error")
+            else:
+                self.notify(f"Engine {final_state}")
+            self._set_engine_status()
+
+        return done
 
     def action_add_token(self) -> None:
         self.push_screen(TokenDialog(), self._on_token_result)
@@ -273,11 +314,46 @@ class UnliApp(App[None]):
 
     # -- folders ---------------------------------------------------------------
 
+    def _folder_model(self) -> tuple[list[str], list[str]]:
+        """(explicit dirs, shown defaults) - the effective watch list, deduped."""
+        config = load_config(self._paths.config_file)
+        user = [str(d) for d in config.dirs]
+        defaults = (
+            [
+                str(p)
+                for p in default_watch_paths()
+                if str(p) not in user
+            ]
+            if config.include_defaults
+            else []
+        )
+        return user, defaults
+
     def _refresh_folders(self) -> None:
         listing = self.query_one("#folder-list", ListView)
         listing.clear()
-        for directory in load_config(self._paths.config_file).dirs:
+        user, defaults = self._folder_model()
+        for directory in user:
             listing.append(ListItem(Label(directory)))
+        for directory in defaults:
+            listing.append(ListItem(Label(f"{directory}  (default)")))
+        toggle = self.query_one("#defaults-toggle", Switch)
+        with contextlib.suppress(Exception):
+            toggle.value = (
+                load_config(self._paths.config_file).include_defaults
+            )
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        config = load_config(self._paths.config_file)
+        if event.value == config.include_defaults:
+            return
+        save_config(
+            self._paths.config_file,
+            AppConfig(dirs=config.dirs, include_defaults=event.value),
+        )
+        if self._engine is not None:
+            self._engine.restart_watcher()
+        self._refresh_folders()
 
     def on_folder_add(self) -> None:
         value = self.query_one("#new-folder", Input).value.strip()
@@ -287,29 +363,38 @@ class UnliApp(App[None]):
         if not resolved.is_dir():
             self.notify(f"Not a folder: {resolved}", severity="error")
             return
-        config = load_config(self._paths.config_file)
-        if str(resolved) in config.dirs:
+        user, defaults = self._folder_model()
+        if str(resolved) in user:
             self.notify("Already monitored", severity="warning")
             return
-        self._save_dirs([*config.dirs, str(resolved)])
+        if str(resolved) in defaults:
+            self.notify("Already watched by default", severity="warning")
+            return
+        self._save_dirs([*user, str(resolved)])
         self.notify(f"Added {resolved}")
 
     def on_folder_remove(self) -> None:
         listing = self.query_one("#folder-list", ListView)
         index = listing.index
-        config = load_config(self._paths.config_file)
-        if index is None or index >= len(config.dirs):
+        user, _defaults = self._folder_model()
+        if index is None:
             self.notify("Select a folder first", severity="warning")
             return
-        removed = config.dirs[index]
-        dirs = [d for i, d in enumerate(config.dirs) if i != index]
-        self._save_dirs(dirs)
+        if index >= len(user):
+            self.notify(
+                "Default folders are toggled with the switch above",
+                severity="warning",
+            )
+            return
+        removed = user[index]
+        self._save_dirs([d for i, d in enumerate(user) if i != index])
         self.notify(f"Removed {removed}")
 
     def _save_dirs(self, dirs: list[str]) -> None:
+        config = load_config(self._paths.config_file)
         save_config(
             self._paths.config_file,
-            AppConfig(dirs=tuple(dirs), include_defaults=False),
+            AppConfig(dirs=tuple(dirs), include_defaults=config.include_defaults),
         )
         if self._engine is not None:
             self._engine.restart_watcher()

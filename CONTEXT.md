@@ -44,6 +44,13 @@ frontends are thin views. The engine never imports textual.
 - `tui/app.py`: `UnliApp` builds/starts the engine on mount (after `precheck`),
   bridges engine events with `_post_event` -> `call_from_thread` (falls back to
   direct call when on the app thread, which is what the tests rely on).
+  Dashboard is a SUMMARY (status/stats/watching/last-event Statics); the full
+  event stream lives only in the Logs tab RichLog. `s` toggle runs
+  engine.start/stop in a bg thread with `_engine_pending` status text
+  ("stopping...") - engine.stop() joins worker threads up to 15s and must
+  never run on the UI thread. Folders tab shows the EFFECTIVE list (explicit
+  dirs + defaults suffixed "(default)") and a Switch for include_defaults;
+  Remove only works on explicit dirs; _save_dirs preserves include_defaults.
   Test seams: module-level aliases `binary_download`, `service_enable`,
   `service_disable` (monkeypatch targets) and `CredsClient`.
 - `cli.py`: `precheck()` (binary present + creds non-empty), `run_headless`

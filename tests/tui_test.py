@@ -21,6 +21,7 @@ class FakeEngine:
         self.started = False
         self.rescans = 0
         self.restarts = 0
+        self.stop_delay = 0.0
 
     def add_listener(self, fn):
         self.listeners.append(fn)
@@ -29,6 +30,8 @@ class FakeEngine:
         self.started = True
 
     def stop(self):
+        if self.stop_delay:
+            time.sleep(self.stop_delay)
         self.started = False
 
     @property
@@ -150,10 +153,10 @@ def test_dashboard_shows_stats_on_event(env_paths):
                 UploadSucceeded(path="/w/a.jpg", size=1024, duration=1.0, media_key="m")
             )
             await pilot.pause()
-            from textual.widgets import RichLog
+            from textual.widgets import Static
 
-            activity = app.query_one("#activity", RichLog)
-            assert activity.lines
+            last = str(app.query_one("#last-event", Static).render())
+            assert "a.jpg" in last
 
     run_async(go())
 
@@ -230,10 +233,109 @@ def test_folder_add_persists_and_restarts(env_paths):
 
     run_async(go())
     assert engine.restarts == 1
-    saved = save_config  # noqa: F841
     from unli_photos.config import load_config
 
     assert str(new_dir) in load_config(paths.config_file).dirs
+
+
+def test_folders_tab_shows_default_entries(env_paths):
+    paths, watch = env_paths
+    save_config(
+        paths.config_file, AppConfig(dirs=(), include_defaults=True)
+    )
+    engine = FakeEngine()
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import Label, ListView
+
+            listing = app.query_one("#folder-list", ListView)
+            labels = [
+                str(item.query_one(Label).render()) for item in listing.children
+            ]
+            assert len(labels) == 1
+            assert "(default)" in labels[0]
+            assert str(watch.parent / "Pictures") in labels[0] or (
+                "Pictures" in labels[0]
+            )
+
+    run_async(go())
+
+
+def test_defaults_toggle_persists(env_paths):
+    paths, _ = env_paths
+    engine = FakeEngine()
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import Switch
+
+            toggle = app.query_one("#defaults-toggle", Switch)
+            toggle.value = True
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+
+    run_async(go())
+    from unli_photos.config import load_config
+
+    assert load_config(paths.config_file).include_defaults is True
+    assert engine.restarts >= 1
+
+
+def test_remove_rejects_default_entries(env_paths):
+    paths, _ = env_paths
+    save_config(paths.config_file, AppConfig(dirs=(), include_defaults=True))
+    engine = FakeEngine()
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import ListView
+
+            listing = app.query_one("#folder-list", ListView)
+            listing.index = 0  # the (default) entry
+            app.on_folder_remove()
+            await pilot.pause()
+
+    run_async(go())
+    from unli_photos.config import load_config
+
+    config = load_config(paths.config_file)
+    assert config.dirs == ()
+    assert config.include_defaults is True
+
+
+def test_stop_shows_pending_then_completes(env_paths):
+    paths, _ = env_paths
+    engine = FakeEngine()
+    engine.stop_delay = 0.6
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            from textual.widgets import Static
+
+            text = str(app.query_one("#engine-status", Static).render())
+            assert "stopping" in text.lower()
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                text = str(app.query_one("#engine-status", Static).render())
+                if "stopped" in text.lower():
+                    break
+                await asyncio.sleep(0.05)
+                await pilot.pause()
+            assert "stopped" in text.lower()
+
+    run_async(go())
 
 
 def test_setup_shows_missing_binary(env_paths):

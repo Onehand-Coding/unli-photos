@@ -3,14 +3,9 @@
     padding: 0 2;
     text-style: bold;
 }
-#stats {
+#stats, #watching, #last-event {
     padding: 0 2;
     color: $accent;
-}
-#activity {
-    height: 1fr;
-    border: round $primary;
-    padding: 0 1;
 }
 #logs {
     height: 1fr;
@@ -23,6 +18,11 @@
 #folder-list {
     height: 1fr;
     border: round $primary;
+}
+#defaults-row {
+    height: auto;
+    padding: 0 2;
+    align-vertical: middle;
 }
 #new-folder {
     width: 1fr;
