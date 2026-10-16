@@ -179,8 +179,9 @@ Reimplementing the upload protocol in Python (rejected: fragile,
 duplicates upstream work).
 
 ### All-in-one app
-**Choice:** `unli` (TUI), `unli --headless` (systemd), and `unli --once`
-(cron-like) share one engine and code path. **Status:** Current.
+**Choice:** `unli-photos` (canonical command, short alias `up`) runs the TUI,
+`--headless` (systemd), and `--once` (cron-like), all sharing one engine and
+code path. The former `unli` command name was dropped. **Status:** Current.
 **Reason:** One behavior to test, three delivery modes.
 **Alternatives Considered:** Separate daemon binary (rejected:
 duplication).
@@ -317,8 +318,8 @@ behavior; prevents a poisoned file from looping forever.
 ```bash
 # Development
 uv sync --extra dev      # install deps + dev tools
-uv run unli --version    # smoke check
-uv run unli              # TUI (dev)
+uv run up --version       # smoke check
+uv run up                 # TUI (dev)
 
 # Build
 uv build

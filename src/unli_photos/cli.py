@@ -34,7 +34,7 @@ HEADLESS_POLL_SECONDS = 1.0
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="unli",
+        prog="unli-photos",
         description="unli-photos: watch folders and upload media to Google Photos",
     )
     parser.add_argument(

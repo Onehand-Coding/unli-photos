@@ -42,7 +42,7 @@ def unit_text(project_dir: Path, exec_start: str) -> str:
 
 def derive_exec_start(exe: Path | None = None) -> str:
     resolved = Path(exe) if exe else Path(sys.executable)
-    sibling = resolved.parent / "unli"
+    sibling = resolved.parent / "unli-photos"
     if sibling.is_file():
         return f"{sibling} --headless"
     return f"{resolved} -m {MODULE_NAME} --headless"
@@ -64,7 +64,7 @@ def _systemctl(*args: str) -> tuple[str, int]:
 
 
 def _project_exec_start(project_dir: Path) -> str:
-    script = project_dir / ".venv" / "bin" / "unli"
+    script = project_dir / ".venv" / "bin" / "unli-photos"
     if script.is_file():
         return f"{script} --headless"
     return f"{Path(sys.executable)} -m {MODULE_NAME} --headless"

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "unli-photos"
-version = "0.1.0"
+version = "1.0.0"
 description = "Auto-sync media to Google Photos with Pixel unlimited spoofing via gotohp-cli. Textual TUI + headless service mode."
 readme = "README.md"
 license = "MIT"
@@ -32,7 +32,7 @@ Repository = "https://github.com/Onehand-Coding/unli-photos"
 Upstream = "https://github.com/xob0t/gotohp"
 
 [project.scripts]
-unli = "unli_photos.cli:main"
+unli-photos = "unli_photos.cli:main"
 up = "unli_photos.cli:main"
 
 [project.optional-dependencies]

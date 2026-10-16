@@ -50,7 +50,7 @@ Google device API.
 ## Install
 
 ```sh
-# as an installed tool (adds `unli` and the short alias `up` to PATH)
+# as an installed tool (adds `unli-photos` and the short alias `up` to PATH)
 uv tool install git+https://github.com/Onehand-Coding/unli-photos
 
 # or from a checkout
@@ -69,7 +69,7 @@ uvx --from git+https://github.com/Onehand-Coding/unli-photos up --once
 ## First run (TUI)
 
 ```sh
-uv run unli
+up          # same as: unli-photos
 ```
 
 1. **Setup tab**: click *Download gotohp-cli*. The app fetches the pinned
@@ -99,8 +99,8 @@ uv run unli
 ## Headless (systemd user service)
 
 ```sh
-uv run unli --headless          # run in the foreground
-uv run unli --once              # one scan/upload pass and exit
+up --headless               # run in the foreground
+up --once                   # one scan/upload pass and exit
 ```
 
 Enable the bundled service management from the Setup tab, or wire it manually:
@@ -113,7 +113,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/path/to/unli-photos
-ExecStart=/path/to/unli-photos/.venv/bin/unli --headless
+ExecStart=/path/to/unli-photos/.venv/bin/unli-photos --headless
 Restart=on-failure
 RestartSec=10
 

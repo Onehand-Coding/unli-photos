@@ -15,7 +15,7 @@ from unli_photos.photos.service import (
 
 
 def test_unit_text_fields(tmp_path: Path):
-    exec_start = str(tmp_path / ".venv" / "bin" / "unli --headless")
+    exec_start = str(tmp_path / ".venv" / "bin" / "unli-photos --headless")
     text = unit_text(tmp_path, exec_start)
     assert f"ExecStart={exec_start}" in text
     assert f"WorkingDirectory={tmp_path}" in text
@@ -28,9 +28,9 @@ def test_unit_text_fields(tmp_path: Path):
 def test_derive_exec_start_uses_venv_script(tmp_path: Path):
     venv_bin = tmp_path / "venv" / "bin"
     venv_bin.mkdir(parents=True)
-    (venv_bin / "unli").touch()
+    (venv_bin / "unli-photos").touch()
     exe = venv_bin / "python"
-    assert derive_exec_start(exe) == f"{venv_bin / 'unli'} --headless"
+    assert derive_exec_start(exe) == f"{venv_bin / 'unli-photos'} --headless"
 
 
 def test_derive_exec_start_module_fallback(tmp_path: Path):
@@ -84,14 +84,14 @@ def test_enable_writes_unit_and_activates(
     project_dir = tmp_path / "proj"
     venv_bin = project_dir / ".venv" / "bin"
     venv_bin.mkdir(parents=True)
-    (venv_bin / "unli").touch()
+    (venv_bin / "unli-photos").touch()
 
     message = enable(project_dir)
 
     unit = unit_path()
     assert unit.exists()
     text = unit.read_text()
-    assert f"ExecStart={venv_bin / 'unli'} --headless" in text
+    assert f"ExecStart={venv_bin / 'unli-photos'} --headless" in text
     assert f"WorkingDirectory={project_dir}" in text
     assert message == "enabled"
     calls = log.read_text().splitlines()
@@ -116,7 +116,7 @@ def test_disable_removes_unit(tmp_path: Path, service_home: Path, monkeypatch):
     log = install_fake_systemctl(tmp_path, monkeypatch)
     project_dir = tmp_path / "proj"
     (project_dir / ".venv" / "bin").mkdir(parents=True)
-    (project_dir / ".venv" / "bin" / "unli").touch()
+    (project_dir / ".venv" / "bin" / "unli-photos").touch()
     enable(project_dir)
     assert unit_path().exists()
     assert disable() == "disabled"
