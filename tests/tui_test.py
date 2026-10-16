@@ -322,6 +322,7 @@ def test_stop_shows_pending_then_completes(env_paths):
             await pilot.pause()
             await pilot.press("s")
             await pilot.pause()
+            assert "stopping" in str(app.sub_title).lower()
             from textual.widgets import Static
 
             text = str(app.query_one("#engine-status", Static).render())
@@ -334,6 +335,7 @@ def test_stop_shows_pending_then_completes(env_paths):
                 await asyncio.sleep(0.05)
                 await pilot.pause()
             assert "stopped" in text.lower()
+            assert "stopped" in str(app.sub_title).lower()
 
     run_async(go())
 

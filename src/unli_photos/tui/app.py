@@ -241,6 +241,7 @@ class UnliApp(App[None]):
         else:
             running = self._engine is not None and self._engine.running
             state = "running" if running else "stopped"
+        self.sub_title = f"engine: {state}"
         with contextlib.suppress(Exception):
             self.query_one("#engine-status", Static).update(f"engine: {state}")
 
