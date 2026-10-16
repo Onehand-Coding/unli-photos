@@ -226,9 +226,11 @@ class SyncEngine:
     def _worker_loop(self) -> None:
         while True:
             item = self._queue.get()
-            if item is _STOP:
+            if item is _STOP or self._stop_event.is_set():
                 break
             if item is _RESCAN:
+                if self._stop_event.is_set():
+                    break
                 self._do_rescan()
                 continue
             path = item if isinstance(item, Path) else Path(str(item))
