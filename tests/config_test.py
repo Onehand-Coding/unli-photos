@@ -33,11 +33,7 @@ def test_save_escapes_special_chars(tmp_path: Path):
 
 def test_default_watch_paths():
     paths = default_watch_paths()
-    names = ["Downloads", "Pictures", "Desktop", "Documents", "Music",
-             "Movies", "Videos", "Google Drive", "Google Photos",
-             "OneDrive/Pictures", "Pictures/iCloud Photos/Photos"]
-    assert [str(p).startswith(str(Path.home())) for p in paths] == [True] * len(paths)
-    assert [p.name for p in paths] == [n.split("/")[-1] for n in names]
+    assert paths == (Path.home() / "Pictures",)
 
 
 def test_paths_honor_xdg(monkeypatch):

@@ -244,10 +244,29 @@ def test_setup_shows_missing_binary(env_paths):
         app = UnliApp(paths=paths, engine=engine)
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
-            from textual.widgets import Static
+            from textual.widgets import Button, Static
 
             status = app.query_one("#binary-status", Static)
             assert "BIN_MISSING" in str(status.render())
+            assert app.query_one("#btn-download", Button).disabled is False
+
+    run_async(go())
+
+
+def test_download_button_disabled_when_binary_ok(env_paths, monkeypatch):
+    paths, _ = env_paths
+    engine = FakeEngine()
+    import unli_photos.tui.app as app_mod
+
+    monkeypatch.setattr(app_mod.binary_mod, "verify", lambda p, **k: "BIN_OK")
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import Button
+
+            assert app.query_one("#btn-download", Button).disabled is True
 
     run_async(go())
 

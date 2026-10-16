@@ -348,7 +348,9 @@ class UnliApp(App[None]):
         self.query_one("#service-status", Static).update(
             f"service: {service_mod.status()}"
         )
-        self.query_one("#dl-progress", ProgressBar).display = state == "BIN_MISSING"
+        missing = state == "BIN_MISSING"
+        self.query_one("#dl-progress", ProgressBar).display = missing
+        self.query_one("#btn-download", Button).disabled = not missing
 
     def on_download_binary(self) -> None:
         bar = self.query_one("#dl-progress", ProgressBar)

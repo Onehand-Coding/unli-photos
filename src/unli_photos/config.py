@@ -51,22 +51,12 @@ def default_paths() -> Paths:
 
 
 def default_watch_paths() -> tuple[Path, ...]:
-    """Standard user + cloud-sync folders monitored by default (Linux parity)."""
-    home = Path.home()
-    candidates = (
-        home / "Downloads",
-        home / "Pictures",
-        home / "Desktop",
-        home / "Documents",
-        home / "Music",
-        home / "Movies",
-        home / "Videos",
-        home / "Google Drive",
-        home / "Google Photos",
-        home / "OneDrive" / "Pictures",
-        home / "Pictures" / "iCloud Photos" / "Photos",
-    )
-    return candidates
+    """Builtin watch folders: ~/Pictures only.
+
+    Policy (decided after v1 feedback): default uploads must stay narrow;
+    anything else is an explicit user choice via config.toml or the TUI.
+    """
+    return (Path.home() / "Pictures",)
 
 
 def load_config(path: Path) -> AppConfig:

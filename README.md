@@ -8,9 +8,10 @@ concept for Linux.
 
 ## What it does
 
-- Watches your media folders (Downloads, Pictures, Desktop, and friends) with
-  inotify, debounces file events, waits until files are fully written, and
-  uploads images/videos/RAW to Google Photos through `gotohp-cli`.
+- Watches folders with inotify: `~/Pictures` by default (deliberately narrow -
+  add more explicitly in the Folders tab or `config.toml`), debounces file
+  events, waits until files are fully written, and uploads
+  images/videos/RAW to Google Photos through `gotohp-cli`.
 - Deduplicates: exact-path records catch changed files; a name+size fallback
   key with SHA-256 verification catches re-downloaded copies under new paths.
 - Never re-uploads what it already uploaded, survives restarts (SQLite state),
@@ -41,8 +42,9 @@ uv run unli
    Google Photos OAuth token; see the gotohp README for how to obtain one).
    The token is piped to `gotohp-cli creds add -` over stdin, never argv or
    shell history, and the config file is chmod 600 afterward.
-3. **Folders tab**: add or remove watch folders; changes are saved to
-   `config.toml` and the watcher restarts immediately.
+3. **Folders tab**: add or remove watch folders (start with `~/Pictures`
+   already covered by the default); changes are saved to `config.toml` and the
+   watcher restarts immediately.
 4. **Dashboard tab**: press `s` to start/stop the engine, `r` to force a
    rescan, `q` to quit.
 

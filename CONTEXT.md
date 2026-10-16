@@ -19,6 +19,9 @@ frontends are thin views. The engine never imports textual.
 - `media.py`: extension allowlist (42 entries) + size formatting.
 - `config.py`: frozen `AppConfig` (dirs + include_defaults), TOML roundtrip,
   `Paths` + `default_paths()` (reads XDG env at call time, good for tests).
+  `default_watch_paths()` is `~/Pictures` ONLY (narrow-by-default policy,
+  changed after v1 user feedback: the original 11-folder list backfilled too
+  much); extra folders are always explicit.
 - `storage/`: single-connection SQLite WAL repo. Tables: `uploads` (path PK,
   media_key, name, size, sha), `retry_queue` (path PK, attempts), `logs`.
   `retry_add` sets an ABSOLUTE attempt count (not increment).
