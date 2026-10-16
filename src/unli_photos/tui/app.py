@@ -127,10 +127,6 @@ class UnliApp(App[None]):
                 yield Static("uploaded 0 | retries 0", id="stats")
                 yield Static("watching: (loading)", id="watching")
                 yield Static("last: -", id="last-event")
-            with TabPane("Uploads", id="uploads-tab"):
-                yield DataTable(id="uploads")
-            with TabPane("Logs", id="logs-tab"):
-                yield RichLog(id="logs", markup=False, highlight=False)
             with TabPane("Folders", id="folders"):
                 with Horizontal(id="defaults-row"):
                     yield Label("Watch ~/Pictures by default:")
@@ -153,6 +149,10 @@ class UnliApp(App[None]):
                 with Horizontal():
                     yield Button("Enable service", id="btn-enable")
                     yield Button("Disable service", id="btn-disable")
+            with TabPane("Uploads", id="uploads-tab"):
+                yield DataTable(id="uploads")
+            with TabPane("Logs", id="logs-tab"):
+                yield RichLog(id="logs", markup=False, highlight=False)
         yield Footer()
 
     def on_mount(self) -> None:
