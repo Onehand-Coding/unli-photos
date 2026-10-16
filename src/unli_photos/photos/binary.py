@@ -76,7 +76,11 @@ def verify(paths: Paths, *, sha256: str | None = None) -> str:
     target = target_path(paths)
     if not target.is_file():
         return "BIN_MISSING"
-    expected = sha256 if sha256 is not None else EXPECTED_SHA256.get(BINARY_NAME)
+    if sha256 is not None:
+        expected = sha256
+    else:
+        asset = asset_for_machine()
+        expected = EXPECTED_SHA256.get(asset) if asset else None
     if not expected:
         return "BIN_CORRUPT"
     return "BIN_OK" if sha256_file(target) == expected else "BIN_CORRUPT"

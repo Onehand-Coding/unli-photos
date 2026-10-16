@@ -373,9 +373,6 @@ class UnliApp(App[None]):
             return
         self.notify(f"Downloaded {Path(str(result)).name}")
         self._refresh_setup()
-        self.query_one("#binary-status", Static).update(
-            f"binary: gotohp-cli {binary_mod.GOTOHP_VERSION}: downloaded"
-        )
 
     def on_service_enable(self) -> None:
         self._run_bg(lambda: service_enable(Path.cwd()), self._service_done)

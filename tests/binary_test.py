@@ -41,6 +41,22 @@ def test_verify_ok(paths: Paths):
     assert verify(paths, sha256=hashlib.sha256(payload).hexdigest()) == "BIN_OK"
 
 
+def test_verify_ok_against_pinned_manifest(paths: Paths, monkeypatch):
+    """Regression: verify must key the manifest by release asset, not binary name."""
+    import unli_photos.photos.binary as bm
+
+    target = target_path(paths)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = b"pinned release payload"
+    target.write_bytes(payload)
+    asset = bm.asset_for_machine()
+    assert asset is not None
+    monkeypatch.setitem(
+        bm.EXPECTED_SHA256, asset, hashlib.sha256(payload).hexdigest()
+    )
+    assert verify(paths) == "BIN_OK"
+
+
 def test_verify_corrupt_payload(paths: Paths):
     target = target_path(paths)
     target.parent.mkdir(parents=True, exist_ok=True)
