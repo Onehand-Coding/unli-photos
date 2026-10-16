@@ -1,0 +1,42 @@
+# unli-photos TUI styles
+#engine-status {
+    padding: 0 2;
+    text-style: bold;
+}
+#stats {
+    padding: 0 2;
+    color: $accent;
+}
+#activity {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+}
+#logs {
+    height: 1fr;
+    border: round $primary;
+    padding: 0 1;
+}
+#uploads {
+    height: 1fr;
+}
+#folder-list {
+    height: 1fr;
+    border: round $primary;
+}
+#new-folder {
+    width: 1fr;
+}
+#accounts-status {
+    padding: 1 2;
+}
+#binary-status, #service-status {
+    padding: 0 2;
+}
+#dl-progress {
+    margin: 1 2;
+    width: 1fr;
+}
+Button {
+    margin: 0 1;
+}
