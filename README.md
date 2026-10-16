@@ -50,9 +50,20 @@ Google device API.
 ## Install
 
 ```sh
+# as an installed tool (adds `unli` and the short alias `up` to PATH)
+uv tool install git+https://github.com/Onehand-Coding/unli-photos
+
+# or from a checkout
 git clone https://github.com/Onehand-Coding/unli-photos.git
 cd unli-photos
 uv sync --extra dev
+```
+
+Prefer not to install anything on a machine, but upload one folder? Run
+one-shot mode via uvx:
+
+```sh
+uvx --from git+https://github.com/Onehand-Coding/unli-photos up --once
 ```
 
 ## First run (TUI)

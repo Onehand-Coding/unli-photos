@@ -28,11 +28,12 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/kenneth/unli-photos"
+Repository = "https://github.com/Onehand-Coding/unli-photos"
 Upstream = "https://github.com/xob0t/gotohp"
 
 [project.scripts]
 unli = "unli_photos.cli:main"
+up = "unli_photos.cli:main"
 
 [project.optional-dependencies]
 dev = [
