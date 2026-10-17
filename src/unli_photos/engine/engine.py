@@ -84,6 +84,7 @@ class SyncEngine:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._active: set[str] = set()
+        self._queued: set[str] = set()
         self._observer: Observer | None = None
         self._worker: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
@@ -225,6 +226,7 @@ class SyncEngine:
             if key in self._active:
                 return
             self._active.add(key)
+            self._queued.add(key)
         self._queue.put(path)
 
     def request_rescan(self, force: bool = False) -> None:
@@ -257,11 +259,13 @@ class SyncEngine:
                 self._do_rescan(force=True)
                 continue
             path = item if isinstance(item, Path) else Path(str(item))
+            key = str(path)
             try:
                 self._process_candidate(path, force=False)
             finally:
                 with self._lock:
-                    self._active.discard(str(path))
+                    self._active.discard(key)
+                    self._queued.discard(key)
 
     def _do_rescan(self, force: bool = False) -> None:
         """Rescan watch dirs inline in the worker thread.
@@ -310,11 +314,21 @@ class SyncEngine:
                 self._queue.put(path)
 
     def _sweep(self) -> None:
-        """Safety sweep: catches files missed while paused (cheap prefilter)."""
+        """Safety sweep: catches files missed while paused (cheap prefilter).
+
+        Reports only files neither uploaded nor already queued; otherwise a
+        large backlog would re-warn every pending file on each sweep tick.
+        """
         for path in self._media_candidates(self.watch_dirs()):
-            if not self._repo.is_recorded(str(path)):
-                self._log("WARN", f"Sweep caught missed file: {path.name}")
-                self.enqueue(path)
+            key = str(path)
+            if self._repo.is_recorded(key):
+                continue
+            with self._lock:
+                queued = key in self._queued
+            if queued:
+                continue
+            self._log("WARN", f"Sweep caught missed file: {path.name}")
+            self.enqueue(path)
 
     # -- scan ----------------------------------------------------------------
 
