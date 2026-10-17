@@ -44,6 +44,26 @@ class TestParseUploadOutput:
 
 
 class TestGotophpUploader:
+    def test_parse_album_key_from_success_output(self, tmp_path: Path):
+        body = (
+            '{"success": true, "mediaKey": "MK_9", '
+            '"album": {"name": "P", "albumKeys": ["AF1QipXYZ"]}}'
+        )
+        stub = write_script(tmp_path / "fake-cli", f"echo '{body}'")
+        up = GotophpUploader(binary=stub)
+        result = up.upload(tmp_path / "p.jpg")
+        assert result.ok is True
+        assert result.album_key == "AF1QipXYZ"
+
+    def test_no_album_key_when_output_lacks_it(self, tmp_path: Path):
+        stub = write_script(
+            tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\''
+        )
+        up = GotophpUploader(binary=stub)
+        result = up.upload(tmp_path / "p.jpg")
+        assert result.ok is True
+        assert result.album_key is None
+
     def test_upload_success_via_stub(self, tmp_path: Path):
         stub = write_script(tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\'')
         cfg = tmp_path / "gotohp.config"

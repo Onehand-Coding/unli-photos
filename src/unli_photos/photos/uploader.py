@@ -13,6 +13,7 @@ from unli_photos.engine.uploader import UploadResult
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 MEDIA_KEY_RE = re.compile(r'"mediaKey"\s*:\s*"([^"]+)"')
+ALBUM_KEY_RE = re.compile(r'"albumKeys"\s*:\s*\[\s*"(AF1Q[^"]+)"')
 ERROR_RE = re.compile(r'"error"\s*:\s*"([^"]+)"')
 MESSAGE_RE = re.compile(r'"message"\s*:\s*"([^"]+)"')
 SUCCESS_RE = re.compile(r'"success"\s*:\s*true')
@@ -97,13 +98,18 @@ class GotophpUploader:
             return UploadResult(ok=False, error="timeout")
         except OSError as exc:
             return UploadResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-        media_key, error = parse_upload_output(f"{proc.stdout or ''}\n{proc.stderr or ''}")
+        combined = f"{proc.stdout or ''}\n{proc.stderr or ''}"
+        media_key, error = parse_upload_output(combined)
+        album_match = ALBUM_KEY_RE.search(combined)
+        album_key = album_match.group(1) if album_match else None
         if not error and proc.stderr and proc.stderr.strip():
             error = proc.stderr.strip()
         explicit_success = bool(SUCCESS_RE.search(proc.stdout or "")) or media_key is not None
         ok = proc.returncode == 0 and error is None and explicit_success
         self._harden_config()
-        return UploadResult(ok=ok, media_key=media_key, error=error)
+        return UploadResult(
+            ok=ok, media_key=media_key, album_key=album_key, error=error
+        )
 
     def _harden_config(self) -> None:
         if self._config_path is not None and Path(self._config_path).exists():

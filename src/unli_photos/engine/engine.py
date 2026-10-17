@@ -416,7 +416,12 @@ class SyncEngine:
             return
 
         self._emit(UploadStarted(path=str(path), size=size))
-        album = "AUTO" if self._config_fn().album_auto else None
+        album = None
+        if self._config_fn().album_auto:
+            # gotohp reuses an album by AF1Qip key and always CREATES by
+            # name, so a fresh name per invocation would mint one album
+            # per file; cache the key per source dir instead.
+            album = self._repo.album_key_for(str(path.parent)) or "AUTO"
         started = time.perf_counter()
         try:
             result = self._uploader.upload(path, force=force, album=album)
@@ -425,6 +430,8 @@ class SyncEngine:
         duration = time.perf_counter() - started
 
         if result.ok:
+            if album and result.album_key:
+                self._repo.set_album_key(str(path.parent), result.album_key)
             content_hash = sha256_file(path)
             self._repo.record_upload(
                 str(path),
