@@ -99,6 +99,16 @@ class TestNameSize:
         assert repo.name_size_hashes("IMG_1.jpg", 99) == set()
 
 
+class TestAlbumKeys:
+    def test_set_get_and_replace(self, repo: Repo):
+        assert repo.album_key_for("/a") is None  # uncached dir
+        repo.set_album_key("/a", "AF1QipAAA")
+        assert repo.album_key_for("/a") == "AF1QipAAA"
+        repo.set_album_key("/a", "AF1QipBBB")
+        assert repo.album_key_for("/a") == "AF1QipBBB"
+        assert repo.album_key_for("/b") is None  # independent rows
+
+
 def test_record_defaults(repo: Repo):
     repo.record_upload("/p", media_key=None, file_name="p", file_size=0, content_hash="")
     row = repo.recent_uploads()[0]

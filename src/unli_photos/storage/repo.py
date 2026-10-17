@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS logs (
     level     TEXT NOT NULL,
     message   TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS album_dirs (
+    dir       TEXT PRIMARY KEY,
+    album_key TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_uploads_file ON uploads(file_name, file_size);
 CREATE INDEX IF NOT EXISTS idx_uploads_hash ON uploads(content_hash);
 CREATE INDEX IF NOT EXISTS idx_logs_ts      ON logs(timestamp);
@@ -74,6 +78,25 @@ class Repo:
         self.close()
 
     # -- uploads ------------------------------------------------------------
+
+    def album_key_for(self, directory: str) -> str | None:
+        """Cached album key for a source dir (gotohp reuses keys, not names)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT album_key FROM album_dirs WHERE dir = ?", (directory,)
+            ).fetchone()
+        return str(row["album_key"]) if row is not None else None
+
+    def set_album_key(self, directory: str, album_key: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO album_dirs (dir, album_key)
+                VALUES (?, ?)
+                ON CONFLICT(dir) DO UPDATE SET album_key = excluded.album_key
+                """,
+                (directory, album_key),
+            )
 
     def is_recorded(self, path: str) -> bool:
         with self._lock:

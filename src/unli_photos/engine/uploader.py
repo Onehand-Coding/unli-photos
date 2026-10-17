@@ -13,6 +13,7 @@ class UploadResult:
 
     ok: bool
     media_key: str | None = None
+    album_key: str | None = None
     error: str | None = None
 
 

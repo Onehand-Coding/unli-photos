@@ -119,6 +119,29 @@ class TestRunOnce:
         eng.run_once()
         assert fake.calls and fake.calls[0][2] == "AUTO"
 
+    def test_dir_album_key_cached_across_files(self, watch: Path, repo: Repo):
+        """Second file in a dir must reuse the AF1Qip key, not create another album."""
+        (watch / "IMG_1.jpg").write_bytes(b"one")
+        (watch / "IMG_2.jpg").write_bytes(b"two")
+        fake = FakeUploader(
+            default=UploadResult(
+                ok=True, media_key="mk", album_key="AF1QipDIRKEY"
+            )
+        )
+        eng, _ = make_engine(repo, fake, watch)
+        eng.run_once()
+        albums = [c[2] for c in fake.calls]
+        assert albums[0] == "AUTO"
+        assert albums[1] == "AF1QipDIRKEY"
+        assert repo.album_key_for(str(watch)) == "AF1QipDIRKEY"
+
+    def test_album_key_not_stored_without_result_key(self, watch: Path, repo: Repo):
+        (watch / "IMG.jpg").write_bytes(b"photo")
+        fake = FakeUploader()  # default result has album_key=None
+        eng, _ = make_engine(repo, fake, watch)
+        eng.run_once()
+        assert repo.album_key_for(str(watch)) is None
+
     def test_album_auto_disabled_passes_none(self, watch: Path, repo: Repo):
         (watch / "IMG.jpg").write_bytes(b"photo")
         fake = FakeUploader()
