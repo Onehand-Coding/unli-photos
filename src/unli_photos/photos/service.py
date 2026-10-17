@@ -117,3 +117,23 @@ def status() -> str:
     active, _ = _systemctl("is-active", UNIT_FILE_NAME)
     enabled, _ = _systemctl("is-enabled", UNIT_FILE_NAME)
     return f"{active} ({enabled})"
+
+
+def is_active() -> bool:
+    if not systemctl_available() or not unit_path().exists():
+        return False
+    text, _ = _systemctl("is-active", UNIT_FILE_NAME)
+    return text == "active"
+
+
+def control(action: str) -> str:
+    """systemctl --user start/stop/restart of the unit."""
+    if not systemctl_available():
+        return "systemd unavailable"
+    if not unit_path().exists():
+        return "not installed"
+    if action not in {"start", "stop", "restart"}:
+        raise ValueError(action)
+    _, rc = _systemctl(action, UNIT_FILE_NAME)
+    verb = {"start": "started", "stop": "stopped", "restart": "restarted"}[action]
+    return verb if rc == 0 else f"{action} failed"

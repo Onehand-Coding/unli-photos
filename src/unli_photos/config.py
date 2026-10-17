@@ -18,6 +18,7 @@ class AppConfig:
 
     dirs: tuple[str, ...] = ()
     include_defaults: bool = True
+    album_auto: bool = True
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,14 @@ def load_config(path: Path) -> AppConfig:
     if isinstance(raw_include, bool):
         include_defaults = raw_include
 
-    return AppConfig(dirs=dirs, include_defaults=include_defaults)
+    album_auto = True
+    upload = data.get("upload")
+    if isinstance(upload, dict):
+        raw_album = upload.get("album_auto")
+        if isinstance(raw_album, bool):
+            album_auto = raw_album
+
+    return AppConfig(dirs=dirs, include_defaults=include_defaults, album_auto=album_auto)
 
 
 def save_config(path: Path, config: AppConfig) -> None:
@@ -92,15 +100,17 @@ def save_config(path: Path, config: AppConfig) -> None:
         "",
         "[watch]",
         "# Extra directories to monitor (default folders below are optional).",
-        'dirs = [',
+        "dirs = [",
     ]
     for d in config.dirs:
         lines.append(f"  {json.dumps(d)},")
     lines.append("]")
-    lines.append(
-        "# Also monitor standard user folders (Downloads, Pictures, ...)."
-    )
+    lines.append("# Also monitor standard user folders (Downloads, Pictures, ...).")
     lines.append(f"include_defaults = {'true' if config.include_defaults else 'false'}")
+    lines.append("")
+    lines.append("[upload]")
+    lines.append("# Add uploads to albums named after their parent folder (gotohp --album AUTO).")
+    lines.append(f"album_auto = {'true' if config.album_auto else 'false'}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

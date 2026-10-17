@@ -23,7 +23,9 @@ from unli_photos.engine.events import (
     UploadFailed,
     UploadSkipped,
     UploadSucceeded,
+    from_json,
 )
+from unli_photos.engine.logfile import log_path
 
 
 @pytest.fixture
@@ -143,6 +145,12 @@ class TestHeadless:
         assert "headless" in out
         out_err = capsys.readouterr().err
         assert out_err == ""
+        events_file = log_path(paths.state_dir)
+        assert events_file.exists()
+        lines = events_file.read_text().splitlines()
+        kinds = {from_json(line).__class__.__name__ for line in lines}
+        assert "EngineStarted" in kinds
+        assert "EngineStopped" in kinds
 
     def test_run_once_empty_dirs(self, env_paths, tmp_path: Path):
         paths, _ = env_paths

@@ -60,14 +60,17 @@ class GotophpUploader:
         path: Path,
         *,
         force: bool = False,
+        album: str | None = None,
         timeout: float | None = None,
     ) -> UploadResult:
         try:
             size = path.stat().st_size
         except OSError:
             size = 0
-        effective = timeout if timeout is not None else max(
-            DEFAULT_TIMEOUT_SECONDS, size // TIMEOUT_BYTES_PER_SECOND
+        effective = (
+            timeout
+            if timeout is not None
+            else max(DEFAULT_TIMEOUT_SECONDS, size // TIMEOUT_BYTES_PER_SECOND)
         )
         argv: list[str] = [
             self._binary,
@@ -79,6 +82,8 @@ class GotophpUploader:
             argv += ["--account", self._account]
         if force:
             argv += ["--force"]
+        if album:
+            argv += ["--album", album]
         argv.append(str(path))
         try:
             proc = subprocess.run(
@@ -92,9 +97,7 @@ class GotophpUploader:
             return UploadResult(ok=False, error="timeout")
         except OSError as exc:
             return UploadResult(ok=False, error=f"{type(exc).__name__}: {exc}")
-        media_key, error = parse_upload_output(
-            f"{proc.stdout or ''}\n{proc.stderr or ''}"
-        )
+        media_key, error = parse_upload_output(f"{proc.stdout or ''}\n{proc.stderr or ''}")
         if not error and proc.stderr and proc.stderr.strip():
             error = proc.stderr.strip()
         explicit_success = bool(SUCCESS_RE.search(proc.stdout or "")) or media_key is not None

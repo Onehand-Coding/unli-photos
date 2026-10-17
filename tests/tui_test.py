@@ -11,6 +11,7 @@ from unli_photos.engine.events import (
     LogMessage,
     UploadSucceeded,
 )
+from unli_photos.engine.logfile import FileEventSink
 from unli_photos.photos.uploader import CredRecord
 from unli_photos.tui.app import UnliApp
 
@@ -78,9 +79,7 @@ def env_paths(tmp_path: Path, monkeypatch):
     paths = default_paths()
     watch = tmp_path / "watch"
     watch.mkdir()
-    save_config(
-        paths.config_file, AppConfig(dirs=(str(watch),), include_defaults=False)
-    )
+    save_config(paths.config_file, AppConfig(dirs=(str(watch),), include_defaults=False))
     return paths, watch
 
 
@@ -146,6 +145,106 @@ def test_force_rescan_binding(env_paths):
     assert engine.rescan_forces == [True]
 
 
+class StubService:
+    """Seam fixture capturing control() calls with configurable liveness."""
+
+    def __init__(self, active: bool):
+        self.active = active
+        self.calls: list[str] = []
+
+    def is_active(self) -> bool:
+        return self.active
+
+    def control(self, action: str) -> str:
+        self.calls.append(action)
+        result = {"start": "started", "stop": "stopped"}[action]
+        self.active = action == "start"
+        return result
+
+
+@pytest.fixture
+def stub_service(monkeypatch):
+    fix = StubService(active=True)
+    import unli_photos.tui.app as app_mod
+
+    monkeypatch.setattr(app_mod, "service_is_active", fix.is_active)
+    monkeypatch.setattr(app_mod, "service_control", fix.control)
+    return fix
+
+
+def sink_lines(paths) -> None:
+    from unli_photos.engine.events import LogMessage
+    from unli_photos.engine.logfile import log_path
+
+    dest = log_path(paths.state_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    sink = FileEventSink(dest)
+    sink.open()
+    sink(LogMessage(level="OK", message="observer log line"))
+
+
+def test_observer_attaches_when_service_active(env_paths, stub_service):
+    paths, _ = env_paths
+    sink_lines(paths)
+
+    async def go():
+        app = UnliApp(paths=paths)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            await asyncio.sleep(1.2)
+            from textual.widgets import RichLog, TabbedContent
+
+            assert app._observing is True
+            assert app._engine is None
+            assert app.sub_title.startswith("engine: service (background)")
+            # RichLog defers writes until the pane has a known size, so the
+            # Logs tab must be activated before its lines can be read.
+            app.query_one(TabbedContent).active = "logs-tab"
+            await pilot.pause()
+            log = app.query_one("#logs", RichLog)
+            assert any("observer log line" in str(line) for line in log.lines)
+
+    run_async(go())
+
+
+def test_observer_toggle_calls_service_control(env_paths, stub_service):
+    paths, _ = env_paths
+    sink_lines(paths)
+
+    async def go():
+        app = UnliApp(paths=paths)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("s")
+            deadline = time.monotonic() + 5.0
+            while not stub_service.calls:
+                if time.monotonic() > deadline:
+                    pytest.fail("service control never called")
+                await asyncio.sleep(0.1)
+
+    run_async(go())
+    assert stub_service.calls == ["stop"]
+    assert stub_service.active is False
+
+
+def test_observer_rescan_writes_marker(env_paths, stub_service):
+    from unli_photos.engine.engine import RESCAN_REQUEST
+
+    paths, _ = env_paths
+    sink_lines(paths)
+
+    async def go():
+        app = UnliApp(paths=paths)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+            marker = paths.state_dir / RESCAN_REQUEST
+            assert marker.exists()
+
+    run_async(go())
+
+
 def test_quit_binding(env_paths):
     paths, _ = env_paths
     engine = FakeEngine()
@@ -166,9 +265,7 @@ def test_dashboard_shows_stats_on_event(env_paths):
         app = UnliApp(paths=paths, engine=engine)
         async with app.run_test(size=(100, 40)) as pilot:
             await pilot.pause()
-            engine.emit(
-                UploadSucceeded(path="/w/a.jpg", size=1024, duration=1.0, media_key="m")
-            )
+            engine.emit(UploadSucceeded(path="/w/a.jpg", size=1024, duration=1.0, media_key="m"))
             await pilot.pause()
             from textual.widgets import Static
 
@@ -257,9 +354,7 @@ def test_folder_add_persists_and_restarts(env_paths):
 
 def test_folders_tab_shows_default_entries(env_paths):
     paths, watch = env_paths
-    save_config(
-        paths.config_file, AppConfig(dirs=(), include_defaults=True)
-    )
+    save_config(paths.config_file, AppConfig(dirs=(), include_defaults=True))
     engine = FakeEngine()
 
     async def go():
@@ -269,14 +364,10 @@ def test_folders_tab_shows_default_entries(env_paths):
             from textual.widgets import Label, ListView
 
             listing = app.query_one("#folder-list", ListView)
-            labels = [
-                str(item.query_one(Label).render()) for item in listing.children
-            ]
+            labels = [str(item.query_one(Label).render()) for item in listing.children]
             assert len(labels) == 1
             assert "(default)" in labels[0]
-            assert str(watch.parent / "Pictures") in labels[0] or (
-                "Pictures" in labels[0]
-            )
+            assert str(watch.parent / "Pictures") in labels[0] or ("Pictures" in labels[0])
 
     run_async(go())
 
@@ -302,6 +393,30 @@ def test_defaults_toggle_persists(env_paths):
 
     assert load_config(paths.config_file).include_defaults is True
     assert engine.restarts >= 1
+
+
+def test_albums_toggle_persists_without_restart(env_paths):
+    paths, _ = env_paths
+    engine = FakeEngine()
+
+    async def go():
+        app = UnliApp(paths=paths, engine=engine)
+        async with app.run_test(size=(100, 40)) as pilot:
+            await pilot.pause()
+            from textual.widgets import Switch
+
+            toggle = app.query_one("#albums-toggle", Switch)
+            toggle.value = False
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+
+    run_async(go())
+    from unli_photos.config import load_config
+
+    assert load_config(paths.config_file).album_auto is False
+    # Album changes apply per upload via config_fn; no watcher restart needed.
+    assert engine.restarts == 0
 
 
 def test_remove_rejects_default_entries(env_paths):
@@ -404,13 +519,8 @@ def test_service_buttons_follow_status(env_paths, monkeypatch):
             await pilot.pause()
             from textual.widgets import Button
 
-            assert (
-                app.query_one("#btn-enable", Button).disabled is enable_disabled
-            )
-            assert (
-                app.query_one("#btn-disable", Button).disabled
-                is disable_disabled
-            )
+            assert app.query_one("#btn-enable", Button).disabled is enable_disabled
+            assert app.query_one("#btn-disable", Button).disabled is disable_disabled
 
     run_async(check("active (enabled)", True, False))
     run_async(check("not installed", False, True))

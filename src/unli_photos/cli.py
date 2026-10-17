@@ -25,6 +25,7 @@ from unli_photos.engine.events import (
     UploadSucceeded,
 )
 from unli_photos.engine.lock import EngineLocked
+from unli_photos.engine.logfile import FileEventSink, log_path
 from unli_photos.media import format_size
 from unli_photos.photos.binary import find_binary
 from unli_photos.photos.uploader import CredsClient, GotophpUploader
@@ -120,12 +121,16 @@ def build_engine(
     uploader = GotophpUploader(
         binary=str(binary), config_path=paths.gotophp_config
     )
-    return SyncEngine(
+    engine = SyncEngine(
         repo=repo,
         uploader=uploader,
         config_fn=lambda: load_config(paths.config_file),
         listener=listener,
     )
+    sink = FileEventSink(log_path(paths.state_dir))
+    sink.open()
+    engine.add_listener(sink)
+    return engine
 
 
 def run_headless(

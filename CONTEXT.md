@@ -30,8 +30,9 @@ for cron-like runs.
 **Current Milestone:** v1 shipped and in daily use (TUI + headless +
 systemd service); post-v1 refinement from real-usage feedback.
 
-**Current Development Focus:** UX polish from real usage — narrower
-defaults, clearer TUI feedback (pending states, summary dashboard).
+**Current Development Focus:** observer mode (TUI attaches to a running
+background service instead of crashing on EngineLocked) and
+album-on-upload (`--album AUTO`, folders become album names).
 
 ---
 
@@ -83,6 +84,7 @@ src/unli_photos/
   config.py       # AppConfig/Paths, TOML roundtrip, default dirs
   storage/        # SQLite repository (uploads, retry_queue, logs)
   engine/         # SyncEngine: watcher, dedup, upload worker, monitor
+                  #   events.py (typed events + JSON round-trip), logfile.py (shared JSONL log + tail)
   photos/         # gotohp wrapper: uploader, creds, binary, service
   tui/            # Textual app (app.py, app.tcss)
   cli.py          # entrypoint: TUI / --headless / --once / --version
@@ -295,6 +297,21 @@ process coordination).
   (XDG data dir), not on PATH.
 - `precheck()` = binary present AND creds non-empty; headless refuses to
   start a broken setup but TUI surfaces problems in the Setup tab.
+- **Observer mode:** when a background service holds the engine lock, the
+  TUI attaches as a viewer instead of building its own engine
+  (`EngineLocked` from a lost race also falls back to observer). It tails
+  `events.log` (JSONL shared log, last 64 KiB backlog) via `FileTail`, and
+  `s`/`r`/`Shift+R` act through systemd control and request-marker files
+  (`RESCAN_REQUEST`/`FORCE_RESCAN_REQUEST` in the state dir, consumed by
+  the owning engine within 30s). Engine→log contract: `events.to_json()`
+  / `from_json()` (kind-tagged dicts, tuples↔lists round-trip).
+- **Albums:** `AppConfig.album_auto` (default true, TOML `[upload]`)
+  makes the engine pass `--album AUTO` per gotohp call, creating albums
+  named after each file's parent folder (rebuilds real takeout album
+  names). Toggle lives in Setup; applies to new uploads immediately via
+  the per-call `config_fn` read — no watcher restart.
+- Config saves in the TUI use `dataclasses.replace(config, field=...)`
+  so one toggle never resets the other config fields to defaults.
 
 ---
 

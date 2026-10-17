@@ -35,9 +35,7 @@ class TestParseUploadOutput:
         assert err == "invalid token"
 
     def test_error_beats_message(self):
-        _, err = parse_upload_output(
-            '{"error": "limit", "message": "details"}'
-        )
+        _, err = parse_upload_output('{"error": "limit", "message": "details"}')
         assert err == "limit"
 
     def test_empty_output(self):
@@ -47,9 +45,7 @@ class TestParseUploadOutput:
 
 class TestGotophpUploader:
     def test_upload_success_via_stub(self, tmp_path: Path):
-        stub = write_script(
-            tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\''
-        )
+        stub = write_script(tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\'')
         cfg = tmp_path / "gotohp.config"
         cfg.touch()
         up = GotophpUploader(binary=stub, config_path=cfg)
@@ -82,6 +78,27 @@ class TestGotophpUploader:
         assert "--force" in content
         assert "--account" in content and "me@x.io" in content
 
+    def test_upload_forwards_album_flag(self, tmp_path: Path):
+        log = tmp_path / "args.log"
+        stub = write_script(
+            tmp_path / "fake-cli",
+            f'printf "%s\\n" "$@" >> {log}; echo \'{{"success": true}}\'',
+        )
+        up = GotophpUploader(binary=stub)
+        up.upload(tmp_path / "p.jpg", album="AUTO")
+        content = log.read_text()
+        assert "--album" in content and "AUTO" in content
+
+    def test_upload_omits_album_when_unset(self, tmp_path: Path):
+        log = tmp_path / "args.log"
+        stub = write_script(
+            tmp_path / "fake-cli",
+            f'printf "%s\\n" "$@" >> {log}; echo \'{{"success": true}}\'',
+        )
+        up = GotophpUploader(binary=stub)
+        up.upload(tmp_path / "p.jpg")
+        assert "--album" not in log.read_text()
+
     def test_timeout_maps_to_failed_result(self, tmp_path: Path):
         stub = write_script(tmp_path / "fake-cli", "sleep 1")
         up = GotophpUploader(binary=stub)
@@ -92,9 +109,7 @@ class TestGotophpUploader:
         assert "timeout" in (result.error or "")
 
     def test_config_hardened_after_call(self, tmp_path: Path):
-        stub = write_script(
-            tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "m"}\''
-        )
+        stub = write_script(tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "m"}\'')
         cfg = tmp_path / "gotohp.config"
         cfg.write_text("token")
         cfg.chmod(0o644)
@@ -123,7 +138,7 @@ class TestCredsClient:
         state = tmp_path / "creds_stdin.txt"
         stub = write_script(
             tmp_path / "fake-cli",
-            "case \"$3 $4\" in\n"
+            'case "$3 $4" in\n'
             "  creds\\ list*) cat <<'LISTOUT'\n"
             f"{list_out}\n"
             "LISTOUT\n"

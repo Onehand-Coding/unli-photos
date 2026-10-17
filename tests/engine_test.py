@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from unli_photos.config import AppConfig
-from unli_photos.engine.engine import EngineIntervals, SyncEngine
+from unli_photos.engine.engine import RESCAN_REQUEST, EngineIntervals, SyncEngine
 from unli_photos.engine.events import (
     EngineStarted,
     EngineStopped,
@@ -24,12 +24,12 @@ class FakeUploader:
     """Uploader test double: scripted results per path plus a default."""
 
     def __init__(self, default: UploadResult | None = None) -> None:
-        self.calls: list[tuple[str, bool]] = []
+        self.calls: list[tuple[str, bool, str | None]] = []
         self.results: dict[str, UploadResult] = {}
         self.default = default or UploadResult(ok=True, media_key="mk-1")
 
-    def upload(self, path: Path, *, force: bool = False) -> UploadResult:
-        self.calls.append((str(path), force))
+    def upload(self, path: Path, *, force: bool = False, album: str | None = None) -> UploadResult:
+        self.calls.append((str(path), force, album))
         return self.results.get(str(path), self.default)
 
 
@@ -66,9 +66,11 @@ def repo(tmp_path: Path):
     r.close()
 
 
-def make_engine(repo, uploader, watch, intervals=FAST) -> tuple[SyncEngine, list[Any]]:
+def make_engine(
+    repo, uploader, watch, intervals=FAST, config: AppConfig | None = None
+) -> tuple[SyncEngine, list[Any]]:
     events: list[Any] = []
-    cfg = AppConfig(dirs=(str(watch),), include_defaults=False)
+    cfg = config or AppConfig(dirs=(str(watch),), include_defaults=False)
     eng = SyncEngine(
         repo=repo,
         uploader=uploader,
@@ -80,9 +82,7 @@ def make_engine(repo, uploader, watch, intervals=FAST) -> tuple[SyncEngine, list
 
 
 class TestRunOnce:
-    def test_fresh_scan_uploads_media_only(
-        self, watch: Path, repo: Repo, tmp_path: Path
-    ):
+    def test_fresh_scan_uploads_media_only(self, watch: Path, repo: Repo, tmp_path: Path):
         (watch / "IMG_1.jpg").write_bytes(b"photo")
         (watch / "notes.txt").write_bytes(b"not media")
         (watch / ".hidden.jpg").write_bytes(b"secret")
@@ -111,6 +111,21 @@ class TestRunOnce:
         assert fake.calls == []
         skips = [e for e in evs if isinstance(e, UploadSkipped)]
         assert any("already uploaded" in s.reason for s in skips)
+
+    def test_album_auto_passes_folder_album_flag(self, watch: Path, repo: Repo):
+        (watch / "IMG.jpg").write_bytes(b"photo")
+        fake = FakeUploader()
+        eng, _ = make_engine(repo, fake, watch)
+        eng.run_once()
+        assert fake.calls and fake.calls[0][2] == "AUTO"
+
+    def test_album_auto_disabled_passes_none(self, watch: Path, repo: Repo):
+        (watch / "IMG.jpg").write_bytes(b"photo")
+        fake = FakeUploader()
+        cfg = AppConfig(dirs=(str(watch),), include_defaults=False, album_auto=False)
+        eng, _ = make_engine(repo, fake, watch, config=cfg)
+        eng.run_once()
+        assert fake.calls and fake.calls[0][2] is None
 
     def test_started_stopped_events(self, watch: Path, repo: Repo):
         fake = FakeUploader()
@@ -215,7 +230,10 @@ class TestWatchdirs:
         fake = FakeUploader()
         cfg = AppConfig(dirs=(), include_defaults=True)
         eng = SyncEngine(
-            repo=repo, uploader=fake, config_fn=lambda: cfg, listener=lambda e: None,
+            repo=repo,
+            uploader=fake,
+            config_fn=lambda: cfg,
+            listener=lambda e: None,
             intervals=FAST,
         )
         dirs = eng.watch_dirs()
@@ -230,7 +248,10 @@ class TestWatchdirs:
         fake = FakeUploader()
         cfg = AppConfig(dirs=(str(existing), str(tmp_path / "nope")), include_defaults=False)
         eng = SyncEngine(
-            repo=repo, uploader=fake, config_fn=lambda: cfg, listener=lambda e: None,
+            repo=repo,
+            uploader=fake,
+            config_fn=lambda: cfg,
+            listener=lambda e: None,
             intervals=FAST,
         )
         assert eng.watch_dirs() == [existing]
@@ -303,3 +324,40 @@ class TestSingleInstance:
             assert str(__import__("os").getpid()) in text
         finally:
             eng.stop()
+
+
+class TestRequestFiles:
+    def test_rescan_request_marker_picked_up(self, watch: Path, repo: Repo):
+        fake = FakeUploader()
+        eng, evs = make_engine(repo, fake, watch)
+        eng.start()
+        try:
+            db_path = repo.db_path
+            assert db_path is not None
+            marker = db_path.parent / RESCAN_REQUEST
+            marker.write_text("please")
+            deadline = time.monotonic() + 5.0
+            while not any(isinstance(e, RescanDone) for e in evs):
+                if time.monotonic() > deadline:
+                    pytest.fail("rescan request never processed")
+                time.sleep(0.05)
+            assert not marker.exists()
+        finally:
+            eng.stop()
+
+    def test_unknown_marker_left_alone(self, watch: Path, repo: Repo):
+        fake = FakeUploader()
+        eng, _ = make_engine(repo, fake, watch)
+        eng.start()
+        stranger = None
+        try:
+            db_path = repo.db_path
+            assert db_path is not None
+            stranger = db_path.parent / "some-other.request"
+            stranger.write_text("x")
+            time.sleep(0.2)
+            assert stranger.exists()
+        finally:
+            eng.stop()
+            if stranger is not None:
+                stranger.unlink()

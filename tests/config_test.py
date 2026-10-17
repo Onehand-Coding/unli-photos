@@ -23,8 +23,23 @@ def test_roundtrip(tmp_path: Path):
     assert load_config(p) == cfg
 
 
+def test_album_auto_roundtrip_and_default(tmp_path: Path):
+    p = tmp_path / "config.toml"
+    assert load_config(p).album_auto is True  # default on missing file
+    save_config(p, AppConfig(album_auto=False))
+    assert load_config(p).album_auto is False
+    save_config(p, AppConfig(album_auto=True))
+    assert load_config(p).album_auto is True
+
+
+def test_album_auto_ignores_wrong_type(tmp_path: Path):
+    p = tmp_path / "config.toml"
+    p.write_text('[watch]\ninclude_defaults = false\n[upload]\nalbum_auto = "yes"\n')
+    assert load_config(p).album_auto is True
+
+
 def test_save_escapes_special_chars(tmp_path: Path):
-    cfg = AppConfig(dirs=("/tmp/we'd \"dir\"/photos",))
+    cfg = AppConfig(dirs=('/tmp/we\'d "dir"/photos',))
     p = tmp_path / "config.toml"
     save_config(p, cfg)
     loaded = load_config(p)
@@ -51,10 +66,7 @@ def test_paths_honor_xdg(monkeypatch):
 
 
 def test_toml_documented_keys_only(tmp_path: Path):
-    content = (
-        '[watch]\ndirs = ["/tmp/x"]\ninclude_defaults = true\n'
-        '[unknown]\nkey = 1\n'
-    )
+    content = '[watch]\ndirs = ["/tmp/x"]\ninclude_defaults = true\n[unknown]\nkey = 1\n'
     p = tmp_path / "config.toml"
     p.write_text(content)
     cfg = load_config(p)

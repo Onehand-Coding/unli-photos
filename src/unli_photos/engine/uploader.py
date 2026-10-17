@@ -20,4 +20,6 @@ class UploadResult:
 class Uploader(Protocol):
     """Any backend able to upload one file to Google Photos."""
 
-    def upload(self, path: Path, *, force: bool = False) -> UploadResult: ...
+    def upload(
+        self, path: Path, *, force: bool = False, album: str | None = None
+    ) -> UploadResult: ...

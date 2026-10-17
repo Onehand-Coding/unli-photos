@@ -5,9 +5,10 @@ from __future__ import annotations
 import contextlib
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -31,12 +32,12 @@ from textual.widgets import (
 
 from unli_photos.cli import build_engine, format_event_line, precheck
 from unli_photos.config import (
-    AppConfig,
     Paths,
     default_watch_paths,
     load_config,
     save_config,
 )
+from unli_photos.engine.engine import FORCE_RESCAN_REQUEST, RESCAN_REQUEST
 from unli_photos.engine.events import (
     EngineEvent,
     EngineStarted,
@@ -44,7 +45,10 @@ from unli_photos.engine.events import (
     UploadFailed,
     UploadSkipped,
     UploadSucceeded,
+    from_json,
 )
+from unli_photos.engine.lock import EngineLocked
+from unli_photos.engine.logfile import FileTail, log_path
 from unli_photos.media import format_size
 from unli_photos.photos import binary as binary_mod
 from unli_photos.photos import service as service_mod
@@ -56,6 +60,8 @@ from unli_photos.storage.repo import Repo
 binary_download = binary_mod.download
 service_enable = service_mod.enable
 service_disable = service_mod.disable
+service_is_active = service_mod.is_active
+service_control = service_mod.control
 
 
 class TokenDialog(ModalScreen[str | None]):
@@ -114,6 +120,8 @@ class UnliApp(App[None]):
         self._engine = engine
         self._repo: Repo | None = None
         self._engine_pending: str | None = None
+        self._observing = False
+        self._tail: FileTail | None = None
         self._uploaded = 0
         self._retries = 0
 
@@ -133,9 +141,7 @@ class UnliApp(App[None]):
                     yield Switch(id="defaults-toggle")
                 yield ListView(id="folder-list")
                 with Horizontal():
-                    yield Input(
-                        placeholder="Add folder path", id="new-folder"
-                    )
+                    yield Input(placeholder="Add folder path", id="new-folder")
                     yield Button("Add", id="btn-folder-add")
                     yield Button("Remove selected", id="btn-folder-remove")
             with TabPane("Accounts", id="accounts"):
@@ -145,6 +151,9 @@ class UnliApp(App[None]):
                 yield Static("binary: ...", id="binary-status")
                 yield ProgressBar(id="dl-progress", show_eta=False)
                 yield Button("Download gotohp-cli", id="btn-download")
+                with Horizontal(id="albums-row"):
+                    yield Label("Create albums from folder names:")
+                    yield Switch(id="albums-toggle")
                 yield Static("service: ...", id="service-status")
                 with Horizontal():
                     yield Button("Enable service", id="btn-enable")
@@ -156,24 +165,27 @@ class UnliApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#uploads", DataTable).add_columns(
-            "time", "file", "size", "status"
-        )
+        self.query_one("#uploads", DataTable).add_columns("time", "file", "size", "status")
         if self._engine is None:
-            problems = precheck(self._paths)
-            if problems:
-                for problem in problems:
-                    self.notify(problem, severity="error", timeout=10)
+            if service_is_active():
+                self._enter_observer()
             else:
-                self._paths.state_dir.mkdir(parents=True, exist_ok=True)
-                self._repo = Repo.open(self._paths.db_path)
-                self._engine = build_engine(
-                    self._paths, self._repo, listener=self._post_event
-                )
+                problems = precheck(self._paths)
+                if problems:
+                    for problem in problems:
+                        self.notify(problem, severity="error", timeout=10)
+                else:
+                    self._paths.state_dir.mkdir(parents=True, exist_ok=True)
+                    self._repo = Repo.open(self._paths.db_path)
+                    self._engine = build_engine(self._paths, self._repo, listener=self._post_event)
         if self._engine is not None:
             self._engine.add_listener(self._post_event)
-            self._engine.start()
-            self._set_engine_status()
+            try:
+                self._engine.start()
+                self._set_engine_status()
+            except EngineLocked:
+                self._engine = None
+                self._enter_observer()
         user, defaults = self._folder_model()
         effective = [*user, *defaults]
         self._set_watching(tuple(effective))
@@ -182,10 +194,31 @@ class UnliApp(App[None]):
         self._refresh_setup()
 
     def on_unmount(self) -> None:
+        if self._tail is not None:
+            self._tail.stop()
+            self._tail = None
         if self._engine is not None:
             self._engine.stop()
         if self._repo is not None:
             self._repo.close()
+
+    # -- observer mode ---------------------------------------------------------
+
+    def _enter_observer(self) -> None:
+        """Attach to an engine we don't own (service or other instance)."""
+        if self._tail is not None:
+            return
+        self._observing = True
+        self._tail = FileTail(log_path(self._paths.state_dir), on_line=self._tail_line)
+        self._tail.start()
+        self._set_engine_status()
+
+    def _tail_line(self, line: str) -> None:
+        try:
+            event = from_json(line)
+        except Exception:
+            return
+        self._post_event(event)
 
     # -- engine event bridge ---------------------------------------------------
 
@@ -226,9 +259,7 @@ class UnliApp(App[None]):
     def _set_watching(self, dirs: tuple[str, ...]) -> None:
         names = ", ".join(dirs) if len(dirs) <= 3 else f"{len(dirs)} dirs"
         with contextlib.suppress(Exception):
-            self.query_one("#watching", Static).update(
-                f"watching {len(dirs)} folder(s): {names}"
-            )
+            self.query_one("#watching", Static).update(f"watching {len(dirs)} folder(s): {names}")
 
     def _add_row(self, path: str, size: int, status: str) -> None:
         table = self.query_one("#uploads", DataTable)
@@ -237,6 +268,12 @@ class UnliApp(App[None]):
         table.add_row(stamp, name, format_size(size), status)
 
     def _set_engine_status(self) -> None:
+        if self._observing:
+            state = "service (background)" if service_is_active() else "background stopped"
+            self.sub_title = f"engine: {state}"
+            with contextlib.suppress(Exception):
+                self.query_one("#engine-status", Static).update(f"engine: {state}")
+            return
         if self._engine_pending:
             state = f"{self._engine_pending}..."
         else:
@@ -255,16 +292,39 @@ class UnliApp(App[None]):
     # -- actions ---------------------------------------------------------------
 
     def action_rescan(self) -> None:
+        if self._observing:
+            self._write_rescan_request(force=False)
+            self.notify("Rescan requested (background applies within 30s)")
+            return
         if self._engine is not None:
             self._engine.request_rescan()
             self.notify("Rescan requested")
 
     def action_force_rescan(self) -> None:
+        if self._observing:
+            self._write_rescan_request(force=True)
+            self.notify("Force re-upload requested (background applies within 30s)")
+            return
         if self._engine is not None:
             self._engine.request_rescan(force=True)
             self.notify("Force re-upload started")
 
+    def _write_rescan_request(self, force: bool) -> None:
+        name = FORCE_RESCAN_REQUEST if force else RESCAN_REQUEST
+        try:
+            self._paths.state_dir.mkdir(parents=True, exist_ok=True)
+            marker = self._paths.state_dir / name
+            marker.write_text(datetime.now().isoformat(timespec="seconds"))
+        except OSError as exc:
+            self.notify(f"could not write request: {exc}", severity="error")
+
     def action_toggle_engine(self) -> None:
+        if self._observing:
+            self._run_bg(
+                lambda: service_control("stop" if service_is_active() else "start"),
+                self._service_toggle_done,
+            )
+            return
         if self._engine is None:
             return
         if self._engine_pending is not None:
@@ -278,6 +338,13 @@ class UnliApp(App[None]):
             self._engine_pending = "starting"
             self._set_engine_status()
             self._run_bg(self._engine.start, self._toggle_done("running"))
+
+    def _service_toggle_done(self, result) -> None:
+        if isinstance(result, Exception):
+            self.notify(f"Service error: {result}", severity="error")
+        else:
+            self.notify(f"service: {result}")
+        self._set_engine_status()
 
     def _toggle_done(self, final_state: str):
         def done(result) -> None:
@@ -301,9 +368,7 @@ class UnliApp(App[None]):
             binary = find_binary(self._paths)
             if binary is None:
                 return "gotohp-cli not found"
-            ok = CredsClient(
-                binary=binary, config_path=self._paths.gotophp_config
-            ).add(token)
+            ok = CredsClient(binary=binary, config_path=self._paths.gotophp_config).add(token)
             return None if ok else "gotohp rejected the token"
 
         return work
@@ -322,11 +387,7 @@ class UnliApp(App[None]):
         config = load_config(self._paths.config_file)
         user = [str(d) for d in config.dirs]
         defaults = (
-            [
-                str(p)
-                for p in default_watch_paths()
-                if str(p) not in user
-            ]
+            [str(p) for p in default_watch_paths() if str(p) not in user]
             if config.include_defaults
             else []
         )
@@ -342,17 +403,28 @@ class UnliApp(App[None]):
             listing.append(ListItem(Label(f"{directory}  (default)")))
         toggle = self.query_one("#defaults-toggle", Switch)
         with contextlib.suppress(Exception):
-            toggle.value = (
-                load_config(self._paths.config_file).include_defaults
-            )
+            toggle.value = load_config(self._paths.config_file).include_defaults
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         config = load_config(self._paths.config_file)
+        if event.switch.id == "albums-toggle":
+            if event.value == config.album_auto:
+                return
+            save_config(
+                self._paths.config_file,
+                replace(config, album_auto=event.value),
+            )
+            self.notify(
+                "Albums on: new uploads join a folder-named album"
+                if event.value
+                else "Albums off: uploads go to the library only"
+            )
+            return
         if event.value == config.include_defaults:
             return
         save_config(
             self._paths.config_file,
-            AppConfig(dirs=config.dirs, include_defaults=event.value),
+            replace(config, include_defaults=event.value),
         )
         if self._engine is not None:
             self._engine.restart_watcher()
@@ -397,7 +469,7 @@ class UnliApp(App[None]):
         config = load_config(self._paths.config_file)
         save_config(
             self._paths.config_file,
-            AppConfig(dirs=tuple(dirs), include_defaults=config.include_defaults),
+            replace(config, dirs=tuple(dirs)),
         )
         if self._engine is not None:
             self._engine.restart_watcher()
@@ -410,19 +482,13 @@ class UnliApp(App[None]):
             binary = find_binary(self._paths)
             if binary is None:
                 return ["binary missing"]
-            records = CredsClient(
-                binary=binary, config_path=self._paths.gotophp_config
-            ).list()
+            records = CredsClient(binary=binary, config_path=self._paths.gotophp_config).list()
             if not records:
                 return ["no accounts"]
-            return [
-                f"{'*' if r.active else ' '} {r.email}" for r in records
-            ]
+            return [f"{'*' if r.active else ' '} {r.email}" for r in records]
 
         def done(lines):
-            self.query_one("#accounts-status", Static).update(
-                "accounts:\n" + "\n".join(lines)
-            )
+            self.query_one("#accounts-status", Static).update("accounts:\n" + "\n".join(lines))
 
         self._run_bg(work, done)
 
@@ -434,13 +500,15 @@ class UnliApp(App[None]):
             f"binary: gotohp-cli {binary_mod.GOTOHP_VERSION}: {state}"
         )
         service_status = service_mod.status()
-        self.query_one("#service-status", Static).update(
-            f"service: {service_status}"
-        )
+        self.query_one("#service-status", Static).update(f"service: {service_status}")
         missing = state == "BIN_MISSING"
         self.query_one("#dl-progress", ProgressBar).display = missing
         self.query_one("#btn-download", Button).disabled = not missing
         self._set_service_buttons(service_status)
+        with contextlib.suppress(Exception):
+            self.query_one("#albums-toggle", Switch).value = load_config(
+                self._paths.config_file
+            ).album_auto
 
     def _set_service_buttons(self, service_status: str) -> None:
         if service_status == "systemd unavailable":
@@ -459,17 +527,13 @@ class UnliApp(App[None]):
         bar.update(total=None, progress=0)
 
         def work():
-            return binary_download(
-                self._paths, on_progress=self._dl_progress
-            )
+            return binary_download(self._paths, on_progress=self._dl_progress)
 
         self._run_bg(work, self._download_done)
 
     def _dl_progress(self, done: int, total: int | None) -> None:
         self._post_call(
-            lambda: self.query_one("#dl-progress", ProgressBar).update(
-                progress=done, total=total
-            )
+            lambda: self.query_one("#dl-progress", ProgressBar).update(progress=done, total=total)
         )
 
     def _download_done(self, result) -> None:
@@ -512,8 +576,8 @@ class UnliApp(App[None]):
 
     def _run_bg(
         self,
-        work: Callable[[], object],
-        done: Callable[[object], None] | None = None,
+        work: Callable[[], Any],
+        done: Callable[[Any], None] | None = None,
     ) -> None:
         def wrapper():
             try:
@@ -521,7 +585,8 @@ class UnliApp(App[None]):
             except Exception as exc:  # surfacing into the UI
                 result = exc
             if done:
-                self._post_call(lambda: done(result))
+                done_cb: Callable[[Any], None] = done
+                self._post_call(lambda: done_cb(result))
 
         threading.Thread(target=wrapper, daemon=True, name="unli-tui-bg").start()
 

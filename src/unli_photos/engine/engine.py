@@ -43,17 +43,20 @@ MAX_ATTEMPTS = 3
 class EngineIntervals:
     """Tunable timings (defaults mirror the original scripts)."""
 
-    debounce: float = 1.5          # fs event debounce window (seconds)
+    debounce: float = 1.5  # fs event debounce window (seconds)
     readiness_sample: float = 1.0  # readiness poll spacing
-    readiness_stable: int = 2      # samples of unchanged size before upload
-    readiness_max: int = 30        # poll cap before NOT_READY
-    retry_flush: float = 30.0      # enqueue retry queue every N seconds
-    sweep: float = 900.0           # safety sweep every N seconds
+    readiness_stable: int = 2  # samples of unchanged size before upload
+    readiness_max: int = 30  # poll cap before NOT_READY
+    retry_flush: float = 30.0  # enqueue retry queue every N seconds
+    sweep: float = 900.0  # safety sweep every N seconds
 
 
-_STOP = object()          # worker shutdown sentinel
-_RESCAN = object()        # catch-up rescan sentinel (dedup-aware)
+_STOP = object()  # worker shutdown sentinel
+_RESCAN = object()  # catch-up rescan sentinel (dedup-aware)
 _FORCE_RESCAN = object()  # force re-upload sentinel (bypasses dedup)
+
+RESCAN_REQUEST = "rescan.request"  # observer->engine one-shot markers
+FORCE_RESCAN_REQUEST = "force-rescan.request"
 
 
 class SyncEngine:
@@ -75,7 +78,7 @@ class SyncEngine:
         self._repo = repo
         self._uploader = uploader
         self._config_fn = config_fn
-        self._listener = listener
+        self._listeners: list[Callable[[EngineEvent], None]] = [listener] if listener else []
         self._iv = intervals or EngineIntervals()
         self._queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
@@ -91,14 +94,13 @@ class SyncEngine:
     # -- event plumbing ------------------------------------------------------
 
     def add_listener(self, fn: Callable[[EngineEvent], None]) -> None:
-        self._listener = fn
+        if fn not in self._listeners:
+            self._listeners.append(fn)
 
     def _emit(self, event: EngineEvent) -> None:
-        fn = self._listener
-        if fn is None:
-            return
-        with contextlib.suppress(Exception):
-            fn(event)
+        for fn in tuple(self._listeners):
+            with contextlib.suppress(Exception):
+                fn(event)
 
     def _log(self, level: str, message: str) -> None:
         self._repo.log(level, message)
@@ -270,11 +272,7 @@ class SyncEngine:
         """
         self._emit(RescanStarted())
         candidates = self._media_candidates(self.watch_dirs())
-        todo = (
-            candidates
-            if force
-            else [p for p in candidates if needs_upload(p, self._repo)]
-        )
+        todo = candidates if force else [p for p in candidates if needs_upload(p, self._repo)]
         self._emit(RescanDone(scanned=len(candidates), queued=len(todo)))
         for path in todo:
             self._process_candidate(path, force=force)
@@ -282,10 +280,25 @@ class SyncEngine:
     def _monitor_loop(self) -> None:
         next_sweep = time.monotonic() + self._iv.sweep
         while not self._stop_event.wait(self._iv.retry_flush):
+            self._service_request_files()
             self._flush_retries()
             if time.monotonic() >= next_sweep:
                 next_sweep = time.monotonic() + self._iv.sweep
                 self._sweep()
+
+    def _service_request_files(self) -> None:
+        """Consume one-shot rescan markers dropped by observers/TUIs."""
+        base = self._lock_path.parent
+        for name, sentinel in (
+            (RESCAN_REQUEST, _RESCAN),
+            (FORCE_RESCAN_REQUEST, _FORCE_RESCAN),
+        ):
+            marker = base / name
+            try:
+                marker.unlink()
+            except OSError:
+                continue
+            self._queue.put(sentinel)
 
     def _flush_retries(self) -> None:
         for record in self._repo.pending_retries():
@@ -389,9 +402,10 @@ class SyncEngine:
             return
 
         self._emit(UploadStarted(path=str(path), size=size))
+        album = "AUTO" if self._config_fn().album_auto else None
         started = time.perf_counter()
         try:
-            result = self._uploader.upload(path, force=force)
+            result = self._uploader.upload(path, force=force, album=album)
         except Exception as exc:
             result = UploadResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         duration = time.perf_counter() - started
@@ -433,7 +447,5 @@ class SyncEngine:
                 f"- queued for retry: {path.name}",
             )
         self._emit(
-            UploadFailed(
-                path=str(path), duration=duration, error=result.error, attempts=attempts
-            )
+            UploadFailed(path=str(path), duration=duration, error=result.error, attempts=attempts)
         )
