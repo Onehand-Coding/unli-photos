@@ -327,7 +327,7 @@ class SyncEngine:
                 queued = key in self._queued
             if queued:
                 continue
-            self._log("WARN", f"Sweep caught missed file: {path.name}")
+            self._log("WARN", f"Sweep: not yet uploaded, queued: {path.name}")
             self.enqueue(path)
 
     # -- scan ----------------------------------------------------------------
