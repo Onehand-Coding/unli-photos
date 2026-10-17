@@ -185,12 +185,11 @@ class TestRescan:
         p.write_bytes(b"photo")
         fake = FakeUploader()
         eng, evs = make_engine(repo, fake, watch)
-        eng._queued = {str(p)  # queued but not yet processed
+        eng._queued = {
+            str(p)  # queued but not yet processed
         }
         eng._sweep()
-        warns = [
-            e for e in evs if isinstance(e, LogMessage) and "missed" in e.message
-        ]
+        warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
         assert warns == []
 
     def test_sweep_reports_and_enqueues_unrecorded(self, watch: Path, repo: Repo):
@@ -199,9 +198,7 @@ class TestRescan:
         fake = FakeUploader()
         eng, evs = make_engine(repo, fake, watch)
         eng._sweep()
-        warns = [
-            e for e in evs if isinstance(e, LogMessage) and "missed" in e.message
-        ]
+        warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
         assert len(warns) == 1
 
     def test_rescan_catch_up_skips_uploaded(self, watch: Path, repo: Repo):
