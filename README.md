@@ -28,8 +28,10 @@ Google device API.
 - **Deduplication**: exact-path upload records catch changed files; a
   name + size fallback key with SHA-256 verification catches re-downloaded
   copies under new paths. Already-uploaded files are never re-uploaded.
-- **Retries**: failed uploads are retried 3 times, then dropped with a "GAVE
-  UP" log - no poisoned-file hot loops.
+- **Retries**: failed uploads are retried 3 times. Permanent API rejections
+  (for example, a truncated image) are parked and skipped until the file
+  changes or a force rescan, so a bad file cannot hot-loop; transient errors
+  are re-queued by the safety sweep.
 - **Narrow by default**: watches `~/Pictures` only; extra folders are always
   explicit (TUI Folders tab or `config.toml`).
 - **Three run modes**: interactive TUI, headless daemon (`--headless`, made
@@ -137,7 +139,7 @@ loginctl enable-linger   # keep running after logout
 | ---- | ------- |
 | `~/.config/unli-photos/config.toml` | watch folders + options |
 | `~/.config/unli-photos/gotohp.config` | gotohp credentials (chmod 600) |
-| `~/.local/share/unli-photos/state.db` | upload history, retry queue, logs |
+| `~/.local/share/unli-photos/state.db` | upload history, retry queue, parked failures, logs |
 | `~/.local/share/unli-photos/bin/gotohp-cli` | pinned upload binary |
 | `~/.config/systemd/user/unli-photos.service` | user service unit |
 
@@ -147,8 +149,11 @@ loginctl enable-linger   # keep running after logout
 watchdog events -> debounce (1.5s) -> file readiness (size-stable + lock probe)
   -> dedup (SQLite records; exact path, then name+size with SHA-256 verify)
   -> upload via gotohp-cli subprocess -> record/tally in SQLite
-monitor thread: retry flush every 30s, safety sweep every 15 min
+monitor thread: retry flush every 30s, safety sweep every 15 min (parked files skipped)
 ```
+
+Permanent API rejections are stored in `failed_files` with the file's size and
+mtime, then skipped until either changes or a force rescan clears the row.
 
 The engine runs on its own threads and publishes frozen dataclass events; both
 the TUI and the headless listener are thin view layers that never touch sync

@@ -9,12 +9,18 @@ from typing import Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class UploadResult:
-    """Terminal state of a single upload attempt."""
+    """Terminal state of a single upload attempt.
+
+    `permanent` marks a backend rejection that will not change by retrying the
+    same bytes (for example, an invalid or truncated image). Transient errors
+    leave it False so the safety sweep can try again later.
+    """
 
     ok: bool
     media_key: str | None = None
     album_key: str | None = None
     error: str | None = None
+    permanent: bool = False
 
 
 @runtime_checkable

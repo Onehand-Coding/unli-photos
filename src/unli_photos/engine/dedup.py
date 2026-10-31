@@ -24,6 +24,8 @@ def needs_upload(path: Path, repo: Repo) -> bool:
     """False when the file is already recorded unchanged; True when it should upload.
 
     Order mirrors the original watcher:
+    0. terminal failure: a parked file is skipped while its size and mtime
+       still match the failed state; any write invalidates the record.
     1. exact path match: size change or hash change means modified-in-place (upload);
        a legacy row without hash is backfilled and treated as unchanged.
     2. dual-key fallback (file_name+file_size): identical content hash records the
@@ -31,9 +33,15 @@ def needs_upload(path: Path, repo: Repo) -> bool:
        camera file sharing name+size).
     """
     try:
-        size = path.stat().st_size
+        stat_result = path.stat()
     except OSError:
         return True
+    size = stat_result.st_size
+    failure = repo.failure_for(str(path))
+    if failure is not None:
+        if failure.file_size == size and failure.mtime_ns == stat_result.st_mtime_ns:
+            return False
+        repo.clear_failure(str(path))
     name = path.name
     exact = repo.exact_record(str(path))
     if exact is not None:

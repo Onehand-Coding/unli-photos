@@ -76,3 +76,32 @@ def test_relocated_different_content_uploads(tmp_path: Path, repo: Repo):
 def test_zero_size_still_uploadable(tmp_path: Path, repo: Repo):
     p = _mkfile(tmp_path, "empty.jpg", b"")
     assert needs_upload(p, repo) is True
+
+
+def test_parked_unchanged_needs_no_upload(tmp_path: Path, repo: Repo):
+    p = _mkfile(tmp_path, "bad.png", b"broken-image")
+    st = p.stat()
+    repo.record_failure(
+        str(p),
+        file_size=st.st_size,
+        mtime_ns=st.st_mtime_ns,
+        attempts=3,
+        last_error="media key is empty",
+    )
+    assert needs_upload(p, repo) is False
+    assert repo.failure_for(str(p)) is not None
+
+
+def test_parked_changed_needs_upload_and_clears(tmp_path: Path, repo: Repo):
+    p = _mkfile(tmp_path, "bad.png", b"broken-image")
+    st = p.stat()
+    repo.record_failure(
+        str(p),
+        file_size=st.st_size,
+        mtime_ns=st.st_mtime_ns,
+        attempts=3,
+        last_error="media key is empty",
+    )
+    p.write_bytes(b"repaired-image-with-more-bytes")
+    assert needs_upload(p, repo) is True
+    assert repo.failure_for(str(p)) is None

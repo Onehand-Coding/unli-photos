@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from types import TracebackType
 
-from unli_photos.storage.models import LogEntry, RetryRecord, UploadRecord
+from unli_photos.storage.models import FailureRecord, LogEntry, RetryRecord, UploadRecord
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS uploads (
@@ -32,6 +32,14 @@ CREATE TABLE IF NOT EXISTS logs (
 CREATE TABLE IF NOT EXISTS album_dirs (
     dir       TEXT PRIMARY KEY,
     album_key TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS failed_files (
+    path       TEXT PRIMARY KEY,
+    file_size  INTEGER NOT NULL,
+    mtime_ns   INTEGER NOT NULL,
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    failed_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_uploads_file ON uploads(file_name, file_size);
 CREATE INDEX IF NOT EXISTS idx_uploads_hash ON uploads(content_hash);
@@ -100,9 +108,7 @@ class Repo:
 
     def is_recorded(self, path: str) -> bool:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT 1 FROM uploads WHERE path = ?", (path,)
-            ).fetchone()
+            row = self._conn.execute("SELECT 1 FROM uploads WHERE path = ?", (path,)).fetchone()
         return row is not None
 
     def exact_record(self, path: str) -> tuple[int, str | None] | None:
@@ -133,6 +139,7 @@ class Repo:
                 (path, media_key, file_name, file_size, content_hash),
             )
             self._conn.execute("DELETE FROM retry_queue WHERE path = ?", (path,))
+            self._conn.execute("DELETE FROM failed_files WHERE path = ?", (path,))
 
     def name_size_hashes(self, file_name: str, file_size: int) -> set[str]:
         """Hashes recorded for other paths with identical name+size (dual-key dedup)."""
@@ -214,13 +221,73 @@ class Repo:
             for r in rows
         ]
 
+    # -- terminal failures --------------------------------------------------
+
+    def record_failure(
+        self,
+        path: str,
+        *,
+        file_size: int,
+        mtime_ns: int,
+        attempts: int,
+        last_error: str = "",
+    ) -> None:
+        """Park a file after it exhausted its upload attempts."""
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO failed_files
+                    (path, file_size, mtime_ns, attempts, last_error, failed_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                """,
+                (path, file_size, mtime_ns, attempts, last_error),
+            )
+
+    def failure_for(self, path: str) -> FailureRecord | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT path, file_size, mtime_ns, attempts, last_error, failed_at "
+                "FROM failed_files WHERE path = ?",
+                (path,),
+            ).fetchone()
+        if row is None:
+            return None
+        return FailureRecord(
+            path=row["path"],
+            file_size=int(row["file_size"]),
+            mtime_ns=int(row["mtime_ns"]),
+            attempts=int(row["attempts"]),
+            last_error=row["last_error"] or "",
+            failed_at=row["failed_at"],
+        )
+
+    def failures(self) -> list[FailureRecord]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT path, file_size, mtime_ns, attempts, last_error, failed_at "
+                "FROM failed_files ORDER BY path"
+            ).fetchall()
+        return [
+            FailureRecord(
+                path=r["path"],
+                file_size=int(r["file_size"]),
+                mtime_ns=int(r["mtime_ns"]),
+                attempts=int(r["attempts"]),
+                last_error=r["last_error"] or "",
+                failed_at=r["failed_at"],
+            )
+            for r in rows
+        ]
+
+    def clear_failure(self, path: str) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM failed_files WHERE path = ?", (path,))
+
     # -- logs ---------------------------------------------------------------
 
     def log(self, level: str, message: str) -> None:
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO logs (level, message) VALUES (?, ?)", (level, message)
-            )
+            self._conn.execute("INSERT INTO logs (level, message) VALUES (?, ?)", (level, message))
 
     def recent_logs(self, limit: int = 200) -> list[LogEntry]:
         with self._lock:

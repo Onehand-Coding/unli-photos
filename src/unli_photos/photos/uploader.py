@@ -17,8 +17,20 @@ ALBUM_KEY_RE = re.compile(r'"albumKeys"\s*:\s*\[\s*"(AF1Q[^"]+)"')
 ERROR_RE = re.compile(r'"error"\s*:\s*"([^"]+)"')
 MESSAGE_RE = re.compile(r'"message"\s*:\s*"([^"]+)"')
 SUCCESS_RE = re.compile(r'"success"\s*:\s*true')
+PERMANENT_ERROR_MARKERS = (
+    "upload rejected by api",
+    "media key is empty or missing",
+)
 DEFAULT_TIMEOUT_SECONDS = 600.0
 TIMEOUT_BYTES_PER_SECOND = 50_000
+
+
+def is_permanent_upload_error(error: str | None) -> bool:
+    """True for backend rejections that retrying the same file cannot fix."""
+    if not error:
+        return False
+    lowered = error.lower()
+    return any(marker in lowered for marker in PERMANENT_ERROR_MARKERS)
 
 
 def parse_upload_output(text: str) -> tuple[str | None, str | None]:
@@ -108,7 +120,11 @@ class GotophpUploader:
         ok = proc.returncode == 0 and error is None and explicit_success
         self._harden_config()
         return UploadResult(
-            ok=ok, media_key=media_key, album_key=album_key, error=error
+            ok=ok,
+            media_key=media_key,
+            album_key=album_key,
+            error=error,
+            permanent=is_permanent_upload_error(error),
         )
 
     def _harden_config(self) -> None:

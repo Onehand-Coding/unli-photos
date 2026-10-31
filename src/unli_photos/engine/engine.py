@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from watchdog.observers import Observer
+from watchdog.observers.api import BaseObserver
 
 from unli_photos.config import AppConfig
 from unli_photos.engine.bridge import MediaEventHandler
@@ -85,7 +86,7 @@ class SyncEngine:
         self._lock = threading.Lock()
         self._active: set[str] = set()
         self._queued: set[str] = set()
-        self._observer: Observer | None = None
+        self._observer: BaseObserver | None = None
         self._worker: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
         self._engine_started = False
@@ -309,6 +310,7 @@ class SyncEngine:
             path = Path(record.path)
             if not path.is_file():
                 self._repo.retry_drop(record.path)
+                self._repo.clear_failure(record.path)
                 continue
             if self._engine_started:
                 self._queue.put(path)
@@ -318,11 +320,29 @@ class SyncEngine:
 
         Reports only files neither uploaded nor already queued; otherwise a
         large backlog would re-warn every pending file on each sweep tick.
+        Parked files are skipped while their size and mtime still match the
+        recorded failure, so a permanent rejection cannot loop forever.
         """
+        failures = {record.path: record for record in self._repo.failures()}
         for path in self._media_candidates(self.watch_dirs()):
             key = str(path)
             if self._repo.is_recorded(key):
+                if failures.pop(key, None) is not None:
+                    self._repo.clear_failure(key)
                 continue
+            failure = failures.get(key)
+            if failure is not None:
+                try:
+                    stat_result = path.stat()
+                except OSError:
+                    continue
+                if (
+                    failure.file_size == stat_result.st_size
+                    and failure.mtime_ns == stat_result.st_mtime_ns
+                ):
+                    continue
+                self._repo.clear_failure(key)
+                failures.pop(key, None)
             with self._lock:
                 queued = key in self._queued
             if queued:
@@ -374,6 +394,7 @@ class SyncEngine:
             path = Path(record.path)
             if not path.is_file():
                 self._repo.retry_drop(record.path)
+                self._repo.clear_failure(record.path)
                 continue
             seen.add(record.path)
             out.append(path)
@@ -384,16 +405,25 @@ class SyncEngine:
     def _process_candidate(self, path: Path, force: bool = False) -> None:
         if not path.is_file():
             self._repo.retry_drop(str(path))
+            self._repo.clear_failure(str(path))
             return
         if not is_media_file(path):
             return
         try:
-            size = path.stat().st_size
+            stat_result = path.stat()
         except OSError:
             return
+        size = stat_result.st_size
+        mtime_ns = stat_result.st_mtime_ns
         if not force and not needs_upload(path, self._repo):
-            self._emit(UploadSkipped(path=str(path), reason="already uploaded"))
+            parked = self._repo.failure_for(str(path)) is not None
+            if parked:
+                self._repo.retry_drop(str(path))
+            reason = "parked after repeated failures" if parked else "already uploaded"
+            self._emit(UploadSkipped(path=str(path), reason=reason))
             return
+        if force:
+            self._repo.clear_failure(str(path))
         self._emit(FileDetected(path=str(path), size=size))
         readiness = wait_for_file_ready(
             path,
@@ -404,6 +434,7 @@ class SyncEngine:
         )
         if readiness is Readiness.NOT_FOUND:
             self._repo.retry_drop(str(path))
+            self._repo.clear_failure(str(path))
             return
         if readiness is Readiness.NOT_READY:
             attempts = self._repo.retry_attempts(str(path))
@@ -459,7 +490,24 @@ class SyncEngine:
         suffix = f" ({result.error})" if result.error else ""
         if attempts >= MAX_ATTEMPTS:
             self._repo.retry_drop(str(path))
-            self._log("ERROR", f"GAVE UP after {attempts} upload attempts: {path.name}{suffix}")
+            if result.permanent:
+                self._repo.record_failure(
+                    str(path),
+                    file_size=size,
+                    mtime_ns=mtime_ns,
+                    attempts=attempts,
+                    last_error=result.error or "",
+                )
+                self._log(
+                    "ERROR",
+                    f"GAVE UP after {attempts} upload attempts: {path.name}{suffix}; "
+                    "parked until the file changes or a force rescan",
+                )
+            else:
+                self._log(
+                    "ERROR",
+                    f"GAVE UP after {attempts} upload attempts: {path.name}{suffix}",
+                )
         else:
             self._repo.retry_add(str(path), attempts)
             self._log(

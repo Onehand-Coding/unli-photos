@@ -23,6 +23,22 @@ class RetryRecord:
 
 
 @dataclass(frozen=True)
+class FailureRecord:
+    """A file parked after exhausting its upload attempts.
+
+    Size and mtime identify the exact file state that failed. A later write
+    invalidates the record so the engine retries the changed file.
+    """
+
+    path: str
+    file_size: int
+    mtime_ns: int
+    attempts: int
+    last_error: str
+    failed_at: str
+
+
+@dataclass(frozen=True)
 class LogEntry:
     id: int
     timestamp: str

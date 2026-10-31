@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from unli_photos.storage import Repo
-from unli_photos.storage.models import LogEntry, RetryRecord, UploadRecord
+from unli_photos.storage.models import FailureRecord, LogEntry, RetryRecord, UploadRecord
 
 
 @pytest.fixture
@@ -17,8 +17,11 @@ def repo(tmp_path: Path) -> Generator[Repo, None, None]:
 
 def _put(repo: Repo, path: str, **over) -> None:
     repo.record_upload(
-        path, media_key=over.get("media_key"), file_name=over.get("file_name", Path(path).name),
-        file_size=over.get("file_size", 100), content_hash=over.get("content_hash", "abc"),
+        path,
+        media_key=over.get("media_key"),
+        file_name=over.get("file_name", Path(path).name),
+        file_size=over.get("file_size", 100),
+        content_hash=over.get("content_hash", "abc"),
     )
 
 
@@ -66,6 +69,40 @@ class TestRetries:
         repo.retry_add("/here.jpg", 2)
         repo.retry_drop("/gone.jpg")
         assert [r.path for r in repo.pending_retries()] == ["/here.jpg"]
+
+
+class TestFailures:
+    def test_record_and_lookup(self, repo: Repo):
+        repo.record_failure(
+            "/media/bad.png",
+            file_size=100,
+            mtime_ns=123456789,
+            attempts=3,
+            last_error="media key is empty",
+        )
+        rec = repo.failure_for("/media/bad.png")
+        assert isinstance(rec, FailureRecord)
+        assert rec.path == "/media/bad.png"
+        assert rec.file_size == 100
+        assert rec.mtime_ns == 123456789
+        assert rec.attempts == 3
+        assert rec.last_error == "media key is empty"
+        assert rec.failed_at
+        assert repo.failures() == [rec]
+
+    def test_replace_and_clear(self, repo: Repo):
+        repo.record_failure("/x.png", file_size=1, mtime_ns=1, attempts=1)
+        repo.record_failure("/x.png", file_size=2, mtime_ns=2, attempts=3)
+        rec = repo.failure_for("/x.png")
+        assert rec is not None and rec.file_size == 2 and rec.attempts == 3
+        repo.clear_failure("/x.png")
+        assert repo.failure_for("/x.png") is None
+        assert repo.failures() == []
+
+    def test_success_clears_failure(self, repo: Repo):
+        repo.record_failure("/media/a.jpg", file_size=100, mtime_ns=1, attempts=3)
+        _put(repo, "/media/a.jpg")
+        assert repo.failure_for("/media/a.jpg") is None
 
 
 class TestLogs:

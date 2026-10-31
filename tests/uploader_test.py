@@ -6,6 +6,7 @@ from unli_photos.photos.uploader import (
     CredRecord,
     CredsClient,
     GotophpUploader,
+    is_permanent_upload_error,
     parse_creds_list,
     parse_upload_output,
 )
@@ -56,9 +57,7 @@ class TestGotophpUploader:
         assert result.album_key == "AF1QipXYZ"
 
     def test_no_album_key_when_output_lacks_it(self, tmp_path: Path):
-        stub = write_script(
-            tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\''
-        )
+        stub = write_script(tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "MK_9"}\'')
         up = GotophpUploader(binary=stub)
         result = up.upload(tmp_path / "p.jpg")
         assert result.ok is True
@@ -127,6 +126,19 @@ class TestGotophpUploader:
         result = up.upload(target, timeout=0.1)
         assert result.ok is False
         assert "timeout" in (result.error or "")
+        assert result.permanent is False
+
+    def test_permanent_rejection_marks_result(self, tmp_path: Path):
+        body = (
+            '{"success": false, "error": "upload rejected by API: media key is empty or missing"}'
+        )
+        stub = write_script(tmp_path / "fake-cli", f"echo '{body}'; exit 1")
+        up = GotophpUploader(binary=stub)
+        target = tmp_path / "photo.png"
+        target.write_bytes(b"truncated")
+        result = up.upload(target)
+        assert result.ok is False
+        assert result.permanent is True
 
     def test_config_hardened_after_call(self, tmp_path: Path):
         stub = write_script(tmp_path / "fake-cli", 'echo \'{"success": true, "mediaKey": "m"}\'')
@@ -136,6 +148,21 @@ class TestGotophpUploader:
         up = GotophpUploader(binary=stub, config_path=cfg)
         up.upload(tmp_path / "p.jpg")
         assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
+
+
+class TestPermanentErrors:
+    def test_markers(self):
+        assert is_permanent_upload_error("upload rejected by API: media key is empty or missing")
+        assert is_permanent_upload_error("media key is empty or missing")
+        assert is_permanent_upload_error(
+            "error committing file: commit failed after 1 attempt(s): "
+            "failed to parse accepted response: upload rejected by API: "
+            "media key is empty or missing"
+        )
+        assert is_permanent_upload_error("upload rejected by API: quota")
+        assert not is_permanent_upload_error("timeout")
+        assert not is_permanent_upload_error("auth expired")
+        assert not is_permanent_upload_error(None)
 
 
 class TestParseCredsList:

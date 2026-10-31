@@ -82,7 +82,7 @@ album-on-upload (`--album AUTO`, folders become album names).
 src/unli_photos/
   media.py        # extension allowlist + size formatting
   config.py       # AppConfig/Paths, TOML roundtrip, default dirs
-  storage/        # SQLite repository (uploads, retry_queue, logs)
+  storage/        # SQLite repository (uploads, retry_queue, failed_files, logs)
   engine/         # SyncEngine: watcher, dedup, upload worker, monitor
                   #   events.py (typed events + JSON round-trip), logfile.py (shared JSONL log + tail)
   photos/         # gotohp wrapper: uploader, creds, binary, service
@@ -110,10 +110,11 @@ and `cli` (frontends). `media.py`/`config.py` are shared leaf modules.
 **Data Flow:**
 watchdog events → `Debouncer` (1.5s) → `wait_for_file_ready`
 (size-stable 2 samples + lsof/fuser lock probe) → dedup
-(`needs_upload`: exact-path + size/hash, then name|size fallback with
-SHA-256 verify) → single upload worker → `GotophpUploader` subprocess →
+(`needs_upload`: parked-state, exact-path + size/hash, then name|size fallback
+with SHA-256 verify) → single upload worker → `GotophpUploader` subprocess →
 SQLite record. Monitor thread: retry flush every 30s, safety sweep
-every 15min. Events fan out to registered listeners; frontends bridge
+every 15min. Parked files are skipped while their size/mtime still match the
+recorded failure. Events fan out to registered listeners; frontends bridge
 them onto the UI thread.
 
 ---
@@ -207,6 +208,18 @@ hardening of the original PowerShell/bash scripts.
 behavior; prevents a poisoned file from looping forever.
 **Alternatives Considered:** Unlimited retries (rejected: hot loop).
 
+### Park permanent API rejections
+**Choice:** `UploadResult.permanent` marks gotohp rejections such as
+`upload rejected by API: media key is empty or missing`. After MAX_ATTEMPTS,
+the engine records the file in `failed_files` (path, size, mtime_ns,
+attempts, last_error) and skips it in normal scans and safety sweeps until
+its size/mtime changes or a force rescan clears the row. Transient give-ups
+keep the old drop-and-sweep behavior. **Status:** Current. **Reason:** The
+sweep previously re-added every unrecorded file, so a permanently rejected
+file looped forever. **Alternatives Considered:** Parking every give-up
+(rejected: a transient outage would park files indefinitely); unlimited
+retries (rejected: hot loop).
+
 ### Single-instance guard via flock
 **Choice:** Every engine start (TUI start/stop, `--headless`, `--once`)
 acquires an flock-based `engine.lock` in the XDG state dir; a second
@@ -242,6 +255,9 @@ process coordination).
 - Files that aren't ready (still downloading/recording) re-queue
   WITHOUT an attempt penalty; only real upload failures consume
   attempts.
+- A permanently rejected file is parked in `failed_files` with its size and
+  mtime; normal scans and sweeps skip it until either changes. Force rescan
+  clears the row and retries it with gotohp `--force`.
 
 ---
 
@@ -266,6 +282,13 @@ process coordination).
   SHA256SUMS.txt.
 - The pinned SHA-256 map is keyed by release ASSET name
   (`gotohp-cli_amd64`), not the installed binary name (`gotohp-cli`).
+
+### gotohp permanent rejections
+- `upload rejected by API: media key is empty or missing` means gotohp's
+  commit response had no media key. Google can reject a file at commit even
+  when the HTTP upload succeeded; truncated PNGs from Google Takeout are a
+  real example (the Takeout zip CRC still passes). Treat it as a per-file
+  permanent rejection, not an account/auth failure.
 
 ### Tooling / environment
 - pyright/LSP diagnostics about watchdog imports and some `_run_bg`
@@ -306,10 +329,14 @@ process coordination).
   the owning engine within 30s). Engine→log contract: `events.to_json()`
   / `from_json()` (kind-tagged dicts, tuples↔lists round-trip).
 - **Albums:** `AppConfig.album_auto` (default true, TOML `[upload]`)
-  makes the engine pass `--album AUTO` per gotohp call, creating albums
-  named after each file's parent folder (rebuilds real takeout album
-  names). Toggle lives in Setup; applies to new uploads immediately via
-  the per-call `config_fn` read — no watcher restart.
+  enables per-dir albums via gotohp. CRITICAL gotohp behavior: `AddToAlbum` always CREATES when given a name and only REUSES when
+  given an `AF1Qip...` album key — so `--album AUTO` (names) alone mints
+  one album per upload invocation. Engine therefore parses
+  `album.albumKeys[0]` from gotohp stdout, caches dir→key in the
+  `album_dirs` table, and passes the cached key for later files in that
+  dir (survives restarts, applies to force re-uploads too). Toggle lives
+  in Setup; applies to new uploads immediately via the per-call
+  `config_fn` read — no watcher restart.
 - Config saves in the TUI use `dataclasses.replace(config, field=...)`
   so one toggle never resets the other config fields to defaults.
 

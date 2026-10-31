@@ -123,11 +123,7 @@ class TestRunOnce:
         """Second file in a dir must reuse the AF1Qip key, not create another album."""
         (watch / "IMG_1.jpg").write_bytes(b"one")
         (watch / "IMG_2.jpg").write_bytes(b"two")
-        fake = FakeUploader(
-            default=UploadResult(
-                ok=True, media_key="mk", album_key="AF1QipDIRKEY"
-            )
-        )
+        fake = FakeUploader(default=UploadResult(ok=True, media_key="mk", album_key="AF1QipDIRKEY"))
         eng, _ = make_engine(repo, fake, watch)
         eng.run_once()
         albums = [c[2] for c in fake.calls]
@@ -173,6 +169,7 @@ class TestRetry:
         assert repo.retry_attempts(str(p)) == 2
         eng.run_once()
         assert repo.retry_attempts(str(p)) == 0  # gave up: dropped from queue
+        assert repo.failure_for(str(p)) is None  # transient: sweep may retry
         assert fake.calls and all(r.ok is False for r in [fake.default])
         logs = repo.recent_logs(limit=10)
         assert any("GAVE UP" in lg.message and lg.level == "ERROR" for lg in logs)
@@ -200,6 +197,79 @@ class TestRetry:
         assert repo.pending_retries() == []
         assert fake.calls == []
 
+    def test_giveup_parks_file(self, watch: Path, repo: Repo):
+        p = watch / "IMG_bad.png"
+        p.write_bytes(b"broken")
+        fake = FakeUploader(
+            default=UploadResult(
+                ok=False,
+                error="upload rejected by API: media key is empty or missing",
+                permanent=True,
+            )
+        )
+        eng, evs = make_engine(repo, fake, watch)
+
+        for _ in range(3):
+            eng.run_once()
+
+        rec = repo.failure_for(str(p))
+        assert rec is not None
+        assert rec.attempts == 3
+        assert rec.last_error == "upload rejected by API: media key is empty or missing"
+        assert repo.retry_attempts(str(p)) == 0
+
+        fake.calls.clear()
+        evs.clear()
+        eng.run_once()
+        assert fake.calls == []
+        skips = [e for e in evs if isinstance(e, UploadSkipped)]
+        assert any(s.reason == "parked after repeated failures" for s in skips)
+
+    def test_parked_file_retries_after_change(self, watch: Path, repo: Repo):
+        p = watch / "IMG_bad.png"
+        p.write_bytes(b"broken")
+        fake = FakeUploader(
+            default=UploadResult(
+                ok=False,
+                error="upload rejected by API: media key is empty or missing",
+                permanent=True,
+            )
+        )
+        eng, _ = make_engine(repo, fake, watch)
+        for _ in range(3):
+            eng.run_once()
+        assert repo.failure_for(str(p)) is not None
+
+        fake.default = UploadResult(ok=True, media_key="mk")
+        p.write_bytes(b"repaired-and-different")
+        eng.run_once()
+
+        assert repo.is_recorded(str(p))
+        assert repo.failure_for(str(p)) is None
+
+    def test_force_rescan_retries_parked_file(self, watch: Path, repo: Repo):
+        p = watch / "IMG_bad.png"
+        p.write_bytes(b"broken")
+        fake = FakeUploader(
+            default=UploadResult(
+                ok=False,
+                error="upload rejected by API: media key is empty or missing",
+                permanent=True,
+            )
+        )
+        eng, _ = make_engine(repo, fake, watch)
+        for _ in range(3):
+            eng.run_once()
+        assert repo.failure_for(str(p)) is not None
+
+        fake.default = UploadResult(ok=True, media_key="mk")
+        fake.calls.clear()
+        eng.rescan_now(force=True)
+
+        assert [(c[0], c[1]) for c in fake.calls] == [(str(p), True)]
+        assert repo.is_recorded(str(p))
+        assert repo.failure_for(str(p)) is None
+
 
 class TestRescan:
     def test_sweep_skips_queued_files(self, watch: Path, repo: Repo):
@@ -223,6 +293,65 @@ class TestRescan:
         eng._sweep()
         warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
         assert len(warns) == 1
+
+    def test_sweep_skips_parked_file(self, watch: Path, repo: Repo):
+        p = watch / "IMG_bad.png"
+        p.write_bytes(b"broken")
+        st = p.stat()
+        repo.record_failure(
+            str(p),
+            file_size=st.st_size,
+            mtime_ns=st.st_mtime_ns,
+            attempts=3,
+            last_error="media key is empty",
+        )
+        fake = FakeUploader()
+        eng, evs = make_engine(repo, fake, watch)
+        eng._engine_started = True
+
+        eng._sweep()
+
+        warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
+        assert warns == []
+        assert str(p) not in eng._queued
+
+    def test_sweep_clears_failure_after_file_changes(self, watch: Path, repo: Repo):
+        p = watch / "IMG_bad.png"
+        p.write_bytes(b"broken")
+        st = p.stat()
+        repo.record_failure(
+            str(p),
+            file_size=st.st_size,
+            mtime_ns=st.st_mtime_ns,
+            attempts=3,
+            last_error="media key is empty",
+        )
+        p.write_bytes(b"changed-and-longer")
+        fake = FakeUploader()
+        eng, evs = make_engine(repo, fake, watch)
+
+        eng._sweep()
+
+        assert repo.failure_for(str(p)) is None
+        warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
+        assert len(warns) == 1
+
+    def test_sweep_requeues_transient_giveup(self, watch: Path, repo: Repo):
+        p = watch / "IMG_flaky.jpg"
+        p.write_bytes(b"photo")
+        fake = FakeUploader(default=UploadResult(ok=False, error="timeout"))
+        eng, evs = make_engine(repo, fake, watch)
+        for _ in range(3):
+            eng.run_once()
+        assert repo.failure_for(str(p)) is None
+
+        eng._engine_started = True
+        evs.clear()
+        eng._sweep()
+
+        warns = [e for e in evs if isinstance(e, LogMessage) and "not yet uploaded" in e.message]
+        assert len(warns) == 1
+        assert str(p) in eng._queued
 
     def test_rescan_catch_up_skips_uploaded(self, watch: Path, repo: Repo):
         p = watch / "IMG_1.jpg"
