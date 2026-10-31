@@ -114,10 +114,7 @@ def from_json(line: str) -> EngineEvent:
     hints = typing.get_type_hints(cls)
     kwargs: dict[str, object] = {}
     for key, value in raw.items():
-        if (
-            isinstance(value, list)
-            and typing.get_origin(hints.get(key, None)) is tuple
-        ):
+        if isinstance(value, list) and typing.get_origin(hints.get(key, None)) is tuple:
             kwargs[key] = tuple(value)
         else:
             kwargs[key] = value

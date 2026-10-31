@@ -51,9 +51,7 @@ def test_verify_ok_against_pinned_manifest(paths: Paths, monkeypatch):
     target.write_bytes(payload)
     asset = bm.asset_for_machine()
     assert asset is not None
-    monkeypatch.setitem(
-        bm.EXPECTED_SHA256, asset, hashlib.sha256(payload).hexdigest()
-    )
+    monkeypatch.setitem(bm.EXPECTED_SHA256, asset, hashlib.sha256(payload).hexdigest())
     assert verify(paths) == "BIN_OK"
 
 
@@ -61,9 +59,7 @@ def test_verify_corrupt_payload(paths: Paths):
     target = target_path(paths)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"tampered bytes")
-    corrupted = verify(
-        paths, sha256=hashlib.sha256(b"expected bytes").hexdigest()
-    )
+    corrupted = verify(paths, sha256=hashlib.sha256(b"expected bytes").hexdigest())
     assert corrupted == "BIN_CORRUPT"
 
 
@@ -126,9 +122,7 @@ def test_download_rejects_bad_hash(paths: Paths):
 
 
 def test_download_unsupported_arch(paths: Paths, monkeypatch):
-    monkeypatch.setattr(
-        "unli_photos.photos.binary.asset_for_machine", lambda: None
-    )
+    monkeypatch.setattr("unli_photos.photos.binary.asset_for_machine", lambda: None)
     client = _download_transport(b"x")
     with pytest.raises(BinaryError, match="architecture"):
         download(paths, client=client, sha256=hashlib.sha256(b"x").hexdigest())

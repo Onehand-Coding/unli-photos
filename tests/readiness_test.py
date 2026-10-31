@@ -12,16 +12,25 @@ def _write(path: Path, data: bytes) -> None:
 def test_ready_file(tmp_path: Path):
     p = tmp_path / "ok.jpg"
     _write(p, b"abc")
-    assert wait_for_file_ready(
-        p, sample_interval=0.01, stable_samples=2, max_samples=10, lock_probe=False
-    ) is Readiness.READY
+    assert (
+        wait_for_file_ready(
+            p, sample_interval=0.01, stable_samples=2, max_samples=10, lock_probe=False
+        )
+        is Readiness.READY
+    )
 
 
 def test_missing_file(tmp_path: Path):
-    assert wait_for_file_ready(
-        tmp_path / "gone.jpg", sample_interval=0.01, stable_samples=2, max_samples=10,
-        lock_probe=False,
-    ) is Readiness.NOT_FOUND
+    assert (
+        wait_for_file_ready(
+            tmp_path / "gone.jpg",
+            sample_interval=0.01,
+            stable_samples=2,
+            max_samples=10,
+            lock_probe=False,
+        )
+        is Readiness.NOT_FOUND
+    )
 
 
 def test_zero_byte_placeholder_waits(tmp_path: Path):
@@ -63,16 +72,30 @@ def test_locked_file_not_ready(tmp_path: Path):
     p = tmp_path / "locked.jpg"
     _write(p, b"data")
     # injected lock probe: always reports a writer holding the file
-    assert wait_for_file_ready(
-        p, sample_interval=0.02, stable_samples=2, max_samples=3, lock_probe=True,
-        lock_probe_fn=lambda _p: True,
-    ) is Readiness.NOT_READY
+    assert (
+        wait_for_file_ready(
+            p,
+            sample_interval=0.02,
+            stable_samples=2,
+            max_samples=3,
+            lock_probe=True,
+            lock_probe_fn=lambda _p: True,
+        )
+        is Readiness.NOT_READY
+    )
 
 
 def test_probe_false_means_ready(tmp_path: Path):
     p = tmp_path / "free.jpg"
     _write(p, b"data")
-    assert wait_for_file_ready(
-        p, sample_interval=0.02, stable_samples=2, max_samples=10, lock_probe=True,
-        lock_probe_fn=lambda _p: False,
-    ) is Readiness.READY
+    assert (
+        wait_for_file_ready(
+            p,
+            sample_interval=0.02,
+            stable_samples=2,
+            max_samples=10,
+            lock_probe=True,
+            lock_probe_fn=lambda _p: False,
+        )
+        is Readiness.READY
+    )

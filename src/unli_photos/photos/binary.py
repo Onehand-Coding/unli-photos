@@ -14,9 +14,7 @@ import httpx
 from unli_photos.config import Paths
 
 GOTOHP_VERSION = "v0.11.0"
-GOTOHP_DOWNLOAD_URL = (
-    f"https://github.com/xob0t/gotohp/releases/download/{GOTOHP_VERSION}"
-)
+GOTOHP_DOWNLOAD_URL = f"https://github.com/xob0t/gotohp/releases/download/{GOTOHP_VERSION}"
 
 _ASSET_BY_MACHINE: dict[str, str] = {
     "x86_64": "gotohp-cli_amd64",
@@ -110,9 +108,7 @@ def download(
 
     own_client: httpx.Client
     close_own = client is None
-    own_client = client if client is not None else httpx.Client(
-        follow_redirects=True, timeout=60.0
-    )
+    own_client = client if client is not None else httpx.Client(follow_redirects=True, timeout=60.0)
     try:
         digest = hashlib.sha256()
         done = 0

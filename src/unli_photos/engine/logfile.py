@@ -18,9 +18,7 @@ def log_path(state_dir: Path) -> Path:
     return state_dir / LOG_NAME
 
 
-def truncate_if_huge(
-    path: Path, at: int = _TRUNCATE_AT, keep: int = _KEEP_TAIL
-) -> None:
+def truncate_if_huge(path: Path, at: int = _TRUNCATE_AT, keep: int = _KEEP_TAIL) -> None:
     """Bound the log: once it passes `at`, drop everything but the last `keep`."""
     try:
         if path.stat().st_size <= at:
@@ -81,9 +79,7 @@ class FileTail:
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._thread = threading.Thread(
-            target=self._loop, daemon=True, name="unli-tail"
-        )
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="unli-tail")
         self._thread.start()
 
     def stop(self) -> None:

@@ -37,9 +37,7 @@ def env_paths(tmp_path: Path, monkeypatch) -> tuple:
     paths = default_paths()
     watch = tmp_path / "watch"
     watch.mkdir()
-    save_config(
-        paths.config_file, AppConfig(dirs=(str(watch),), include_defaults=False)
-    )
+    save_config(paths.config_file, AppConfig(dirs=(str(watch),), include_defaults=False))
     return paths, tmp_path
 
 
@@ -48,7 +46,7 @@ def install_fake_cli(paths, tmp_path: Path, list_out: str = "* t@x.io") -> Path:
     stub = paths.bin_dir / "gotohp-cli"
     stub.write_text(
         "#!/bin/sh\n"
-        "case \"$3 $4\" in\n"
+        'case "$3 $4" in\n'
         "  creds\\ list*) cat <<'LISTOUT'\n"
         f"{list_out}\n"
         "LISTOUT\n"
@@ -112,20 +110,14 @@ class TestFormatEventLine:
         assert "a.jpg" in format_event_line(FileDetected(path="/x/a.jpg", size=1))
 
     def test_engine_events(self):
-        assert "2 folder(s)" in format_event_line(
-            EngineStarted(watch_dirs=("/a", "/b"))
-        )
+        assert "2 folder(s)" in format_event_line(EngineStarted(watch_dirs=("/a", "/b")))
         assert format_event_line(EngineStopped()) == "stopped"
-        assert "scanned 10" in format_event_line(
-            RescanDone(scanned=10, queued=3)
-        )
+        assert "scanned 10" in format_event_line(RescanDone(scanned=10, queued=3))
         assert "queued 3" in format_event_line(RescanDone(scanned=10, queued=3))
         assert "rescan" in format_event_line(RescanStarted())
 
     def test_log_and_precheck(self):
-        assert "[warn] careful" in format_event_line(
-            LogMessage(level="warn", message="careful")
-        )
+        assert "[warn] careful" in format_event_line(LogMessage(level="warn", message="careful"))
         assert "precheck:" in format_event_line(PrecheckIssue(message="x"))
 
 

@@ -77,9 +77,7 @@ def test_systemctl_available(tmp_path: Path, monkeypatch):
     assert systemctl_available() is False
 
 
-def test_enable_writes_unit_and_activates(
-    tmp_path: Path, service_home: Path, monkeypatch
-):
+def test_enable_writes_unit_and_activates(tmp_path: Path, service_home: Path, monkeypatch):
     log = install_fake_systemctl(tmp_path, monkeypatch)
     project_dir = tmp_path / "proj"
     venv_bin = project_dir / ".venv" / "bin"
@@ -101,9 +99,7 @@ def test_enable_writes_unit_and_activates(
     assert status() == "active (enabled)"
 
 
-def test_enable_falls_back_to_module_form(
-    tmp_path: Path, service_home: Path, monkeypatch
-):
+def test_enable_falls_back_to_module_form(tmp_path: Path, service_home: Path, monkeypatch):
     install_fake_systemctl(tmp_path, monkeypatch)
     project_dir = tmp_path / "proj"
     (project_dir / ".venv" / "bin").mkdir(parents=True)

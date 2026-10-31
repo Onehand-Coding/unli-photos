@@ -101,26 +101,18 @@ def precheck(paths: Paths) -> list[str]:
     problems: list[str] = []
     binary = find_binary(paths)
     if binary is None:
-        problems.append(
-            "gotohp-cli not found (download it in Setup, or put it on PATH)"
-        )
+        problems.append("gotohp-cli not found (download it in Setup, or put it on PATH)")
         return problems
     if not CredsClient(binary=binary, config_path=paths.gotophp_config).list():
-        problems.append(
-            "no Google account token configured (add one in the Accounts tab)"
-        )
+        problems.append("no Google account token configured (add one in the Accounts tab)")
     return problems
 
 
-def build_engine(
-    paths: Paths, repo: Repo, listener=None
-) -> SyncEngine:
+def build_engine(paths: Paths, repo: Repo, listener=None) -> SyncEngine:
     binary = find_binary(paths)
     if binary is None:  # pragma: no cover - guarded by precheck
         raise RuntimeError("gotohp-cli not found")
-    uploader = GotophpUploader(
-        binary=str(binary), config_path=paths.gotophp_config
-    )
+    uploader = GotophpUploader(binary=str(binary), config_path=paths.gotophp_config)
     engine = SyncEngine(
         repo=repo,
         uploader=uploader,

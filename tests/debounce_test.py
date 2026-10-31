@@ -27,7 +27,7 @@ def test_prune_frees_stale_entries():
     d.ready("/c.jpg", now=201.0)
     d.prune(now=202.0)  # 3 entries > max 2: /old.jpg (age 201 > 60) dropped
     assert d.ready("/old.jpg", now=202.0) is True  # freed: processed again
-    assert d.ready("/b.jpg", now=202.0) is False   # still windowed
+    assert d.ready("/b.jpg", now=202.0) is False  # still windowed
 
 
 def test_prune_noop_under_limit():

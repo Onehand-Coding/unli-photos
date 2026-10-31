@@ -75,9 +75,7 @@ class TestFileEventSink:
         sink = FileEventSink(path)
         sink.open()
         sink(RescanDone(scanned=0, queued=0))
-        assert from_json(path.read_text().splitlines()[0]) == RescanDone(
-            scanned=0, queued=0
-        )
+        assert from_json(path.read_text().splitlines()[0]) == RescanDone(scanned=0, queued=0)
 
 
 class TestTruncate:

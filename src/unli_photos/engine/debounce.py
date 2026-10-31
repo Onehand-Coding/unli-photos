@@ -44,7 +44,5 @@ class Debouncer:
                 return
             horizon = max(self._window, 60.0)
             self._last = {
-                key: stamp
-                for key, stamp in self._last.items()
-                if (time_now - stamp) < horizon
+                key: stamp for key, stamp in self._last.items() if (time_now - stamp) < horizon
             }
